@@ -23,9 +23,9 @@ jobs:
       - name: Get release info
         id: release
         uses: https://git.h.oluflorenzen.de/finkregh/actions/actions/release-with-cog@main
-        with:
-          dry-run: "true"
-          dev_version_suffix: "_dev"
+        #with:
+        #  dry-run: "true"
+        #  dev_version_suffix: "_dev"
 
       - name: Show changelog preview
         run: |
