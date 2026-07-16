@@ -27,7 +27,8 @@ jobs:
 
       - name: Configure Git User
         uses: https://git.h.oluflorenzen.de/mirrors/codeberg.PurpleBooth.common-pipelines/actions/configure-git-user@main
-
+      - name: Install cocogitto
+        uses: https://git.h.oluflorenzen.de/mirrors/codeberg.PurpleBooth.common-pipelines/actions/install-cocogitto@main
       - name: Release with cocogitto
         id: do_release
         uses: https://git.h.oluflorenzen.de/mirrors/codeberg.PurpleBooth.common-pipelines/actions/release-with-cog@main
