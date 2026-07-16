@@ -3,69 +3,49 @@ name: GO lint & test
 on:
   push:
     branches:
-      - develop
+      - main
   pull_request:
     branches:
       - main
-      - develop
 
 jobs:
   build:
-    runs-on: arc-runner-set-amd64
+    runs-on: ubuntu-latest
+    container:
+      image: golang:1.25-bookworm
 
     steps:
-    - name: Checkout code
-      uses: https://github.com/actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: https://code.forgejo.org/actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v6.0.2
 
-    - name: Set up Go
-      uses: https://github.com/actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
-      with:
-        go-version: '>=1.25.4'
-        cache-dependency-path: go.sum
+      - name: Download dependencies
+        run: go mod download
 
-    - name: build
-      run: |
-        go mod download
-        go build -tags timetzdata ./...
+      - name: Build
+        run: go build -tags timetzdata ./...
 
   test:
     needs: [build]
-    runs-on: arc-runner-set-amd64
+    runs-on: ubuntu-latest
+    container:
+      image: golang:1.25-bookworm
 
     steps:
-    - name: Checkout code
-      uses: https://github.com/actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: https://code.forgejo.org/actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v6.0.2
 
-    - name: Set up Go
-      uses: https://github.com/actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
-      with:
-        go-version: '>=1.25.4'
-        cache-dependency-path: go.sum
+      - name: Download dependencies
+        run: go mod download
 
-    - name: lint and test
-      run: |
-        go mod download
-        go test ./... -v
+      - name: Test
+        run: go test ./... -v
 
   lint:
     needs: [build]
-    runs-on: arc-runner-set-amd64
-    permissions:
-      contents: read
-      pull-requests: read
+    runs-on: ubuntu-latest
+    container:
+      image: golangci/golangci-lint:latest
+
     steps:
-    - name: Checkout code
-      uses: https://github.com/actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: https://code.forgejo.org/actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v6.0.2
 
-    - name: Set up Go
-      uses: https://github.com/actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
-      with:
-        go-version: '>=1.25.4'
-        cache-dependency-path: go.sum
-
-    - name: golangci-lint
-      uses: https://github.com/golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
-      with:
-        version: latest
-        only-new-issues: true
-        args: --timeout=10m --config=.golangci.yml
+      - name: Lint
+        run: golangci-lint run --timeout=10m --config=.golangci.yml
