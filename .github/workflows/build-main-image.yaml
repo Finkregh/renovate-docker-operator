@@ -1,4 +1,3 @@
-
 name: Build main Image
 
 on:
@@ -12,5 +11,5 @@ jobs:
     secrets: inherit
     with:
       version: "main"
-      image: ghcr.io/mogenius/renovate-operator
+      image: ghcr.io/oluf-tech/renovate-docker-operator
       push_latest: false

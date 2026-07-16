@@ -37,5 +37,14 @@ dist/
 *.min.js
 *.esm.js
 
-# Helm chart dependency archives (fetched via `helm dependency build`)
-charts/renovate-operator/charts/*.tgz
+# SQLite data files
+*.db
+*.db-wal
+*.db-shm
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Binary
+/renovate-docker-operator

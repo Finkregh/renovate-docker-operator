@@ -1,0 +1,281 @@
+package statestore
+
+import (
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"strconv"
+	"testing"
+	"time"
+
+	"github.com/oluf-tech/renovate-docker-operator/internal/api"
+)
+
+func newTestStore(t *testing.T) *SQLiteStore {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	// Set required env for seeding.
+	t.Setenv("PLATFORM_ENDPOINT", "https://git.example.com")
+	t.Setenv("WEBHOOK_SECRET", "secret1,secret2")
+
+	store, err := New(dbPath, slog.Default())
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	return store
+}
+
+func TestNew_CreatesDB(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	t.Setenv("PLATFORM_ENDPOINT", "https://git.example.com")
+	t.Setenv("WEBHOOK_SECRET", "")
+
+	store, err := New(dbPath, slog.Default())
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
+	defer store.Close()
+
+	// DB file should exist.
+	if _, err := os.Stat(dbPath); err != nil {
+		t.Fatalf("DB file not created: %v", err)
+	}
+
+	// Default job should be seeded.
+	ctx := context.Background()
+	jobs, err := store.ListRenovateJobs(ctx)
+	if err != nil {
+		t.Fatalf("ListRenovateJobs failed: %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(jobs))
+	}
+	if jobs[0].Name != "default" {
+		t.Fatalf("expected job name 'default', got %q", jobs[0].Name)
+	}
+}
+
+func TestMigrations_Idempotent(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	t.Setenv("PLATFORM_ENDPOINT", "https://git.example.com")
+	t.Setenv("WEBHOOK_SECRET", "")
+
+	store1, err := New(dbPath, slog.Default())
+	if err != nil {
+		t.Fatalf("first New() failed: %v", err)
+	}
+	store1.Close()
+
+	// Open again — migrations should be idempotent.
+	store2, err := New(dbPath, slog.Default())
+	if err != nil {
+		t.Fatalf("second New() failed: %v", err)
+	}
+	defer store2.Close()
+
+	// Still one job (not double-seeded).
+	ctx := context.Background()
+	jobs, err := store2.ListRenovateJobs(ctx)
+	if err != nil {
+		t.Fatalf("ListRenovateJobs failed: %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("expected 1 job after re-open, got %d", len(jobs))
+	}
+}
+
+func TestReconcileProjects_InsertsAndRemoves(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	job := &api.RenovateJob{Name: "default"}
+
+	// First reconcile — add projects.
+	removed, err := store.ReconcileProjects(ctx, job, []string{"org/repo1", "org/repo2", "org/repo3"})
+	if err != nil {
+		t.Fatalf("ReconcileProjects failed: %v", err)
+	}
+	if len(removed) != 0 {
+		t.Fatalf("expected no removed projects, got %v", removed)
+	}
+
+	// Verify projects exist.
+	projects, err := store.GetProjectsForRenovateJob(ctx, RenovateJobIdentifier{Name: "default"})
+	if err != nil {
+		t.Fatalf("GetProjectsForRenovateJob failed: %v", err)
+	}
+	if len(projects) != 3 {
+		t.Fatalf("expected 3 projects, got %d", len(projects))
+	}
+
+	// Second reconcile — remove one, add one.
+	removed, err = store.ReconcileProjects(ctx, job, []string{"org/repo1", "org/repo3", "org/repo4"})
+	if err != nil {
+		t.Fatalf("ReconcileProjects (2) failed: %v", err)
+	}
+	if len(removed) != 1 || removed[0] != "org/repo2" {
+		t.Fatalf("expected removed=[org/repo2], got %v", removed)
+	}
+
+	// Verify final state.
+	projects, err = store.GetProjectsForRenovateJob(ctx, RenovateJobIdentifier{Name: "default"})
+	if err != nil {
+		t.Fatalf("GetProjectsForRenovateJob (2) failed: %v", err)
+	}
+	if len(projects) != 3 {
+		t.Fatalf("expected 3 projects after reconcile, got %d", len(projects))
+	}
+	names := make(map[string]bool)
+	for _, p := range projects {
+		names[p.Name] = true
+	}
+	for _, expected := range []string{"org/repo1", "org/repo3", "org/repo4"} {
+		if !names[expected] {
+			t.Errorf("expected project %q to exist", expected)
+		}
+	}
+}
+
+func TestUpdateProjectStatus(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	job := &api.RenovateJob{Name: "default"}
+	_, _ = store.ReconcileProjects(ctx, job, []string{"org/repo1"})
+
+	dur := "45s"
+	err := store.UpdateProjectStatus(ctx, "org/repo1", RenovateJobIdentifier{Name: "default"}, &RenovateStatusUpdate{
+		Status:   api.JobStatusRunning,
+		Duration: &dur,
+	})
+	if err != nil {
+		t.Fatalf("UpdateProjectStatus failed: %v", err)
+	}
+
+	// Verify.
+	projects, _ := store.GetProjectsByStatus(ctx, RenovateJobIdentifier{Name: "default"}, api.JobStatusRunning)
+	if len(projects) != 1 {
+		t.Fatalf("expected 1 running project, got %d", len(projects))
+	}
+	if projects[0].Name != "org/repo1" {
+		t.Fatalf("expected org/repo1, got %q", projects[0].Name)
+	}
+	if projects[0].Duration == nil || *projects[0].Duration != "45s" {
+		t.Fatalf("expected duration=45s, got %v", projects[0].Duration)
+	}
+
+	// Update non-existent project should fail.
+	err = store.UpdateProjectStatus(ctx, "org/nonexistent", RenovateJobIdentifier{Name: "default"}, &RenovateStatusUpdate{
+		Status: api.JobStatusFailed,
+	})
+	if err != ErrProjectNotFound {
+		t.Fatalf("expected ErrProjectNotFound, got %v", err)
+	}
+}
+
+func TestWebhookTokenValidation(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+	jobID := RenovateJobIdentifier{Name: "default"}
+
+	// Valid token.
+	valid, err := store.IsWebhookTokenValid(ctx, jobID, "secret1")
+	if err != nil {
+		t.Fatalf("IsWebhookTokenValid failed: %v", err)
+	}
+	if !valid {
+		t.Fatal("expected token 'secret1' to be valid")
+	}
+
+	// Invalid token.
+	valid, err = store.IsWebhookTokenValid(ctx, jobID, "wrong")
+	if err != nil {
+		t.Fatalf("IsWebhookTokenValid failed: %v", err)
+	}
+	if valid {
+		t.Fatal("expected token 'wrong' to be invalid")
+	}
+
+	// Signature validation.
+	body := []byte(`{"ref":"main"}`)
+	mac := hmac.New(sha256.New, []byte("secret1"))
+	mac.Write(body)
+	sig := "sha256=" + fmt.Sprintf("%x", mac.Sum(nil))
+
+	valid, err = store.IsWebhookSignatureValid(ctx, jobID, sig, body)
+	if err != nil {
+		t.Fatalf("IsWebhookSignatureValid failed: %v", err)
+	}
+	if !valid {
+		t.Fatal("expected signature to be valid")
+	}
+
+	// Invalid signature.
+	valid, _ = store.IsWebhookSignatureValid(ctx, jobID, "sha256=bad", body)
+	if valid {
+		t.Fatal("expected bad signature to be invalid")
+	}
+}
+
+func TestStandardWebhookSignature(t *testing.T) {
+	// Generate a key and create a whsec_ token.
+	rawKey := []byte("test-signing-key-32-bytes-long!!")
+	token := "whsec_" + base64.StdEncoding.EncodeToString(rawKey)
+
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	t.Setenv("PLATFORM_ENDPOINT", "https://git.example.com")
+	t.Setenv("WEBHOOK_SECRET", token)
+
+	store, err := New(dbPath, slog.Default())
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	jobID := RenovateJobIdentifier{Name: "default"}
+
+	body := []byte(`{"action":"push"}`)
+	msgID := "msg_123"
+	ts := strconv.FormatInt(time.Now().Unix(), 10)
+	signedContent := msgID + "." + ts + "." + string(body)
+
+	mac := hmac.New(sha256.New, rawKey)
+	mac.Write([]byte(signedContent))
+	sig := "v1," + base64.StdEncoding.EncodeToString(mac.Sum(nil))
+
+	valid, err := store.IsWebhookStandardSignatureValid(ctx, jobID, msgID, ts, sig, body)
+	if err != nil {
+		t.Fatalf("IsWebhookStandardSignatureValid failed: %v", err)
+	}
+	if !valid {
+		t.Fatal("expected standard webhook signature to be valid")
+	}
+
+	// Expired timestamp should fail.
+	oldTs := strconv.FormatInt(time.Now().Add(-10*time.Minute).Unix(), 10)
+	oldSignedContent := msgID + "." + oldTs + "." + string(body)
+	mac2 := hmac.New(sha256.New, rawKey)
+	mac2.Write([]byte(oldSignedContent))
+	oldSig := "v1," + base64.StdEncoding.EncodeToString(mac2.Sum(nil))
+
+	valid, err = store.IsWebhookStandardSignatureValid(ctx, jobID, msgID, oldTs, oldSig, body)
+	if err != nil {
+		t.Fatalf("IsWebhookStandardSignatureValid (old) failed: %v", err)
+	}
+	if valid {
+		t.Fatal("expected expired timestamp to be rejected")
+	}
+
+	// Wrong signature should fail.
+	valid, _ = store.IsWebhookStandardSignatureValid(ctx, jobID, msgID, ts, "v1,badsig", body)
+	if valid {
+		t.Fatal("expected wrong signature to be rejected")
+	}
+}

@@ -1,44 +1,37 @@
-FROM --platform=$BUILDPLATFORM golang:1.26.5-alpine AS builder
-WORKDIR /workspace
+# Build stage
+FROM golang:1.25-alpine AS builder
 
+WORKDIR /src
 
-ARG TARGETOS
-ARG TARGETARCH
-ARG TARGETVARIANT
-
-ENV CGO_ENABLED=0
-ARG VERSION=dev
-
-COPY src/go.mod src/go.sum ./
+# Cache Go modules
+COPY go.mod go.sum ./
 RUN go mod download
-COPY src .
-RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOARM=${TARGETVARIANT#v} \
-    go build -tags timetzdata -trimpath -gcflags="all=-l" -ldflags="-s -w -X main.Version=${VERSION}" -o renovate-operator ./cmd/main.go
 
-FROM --platform=$BUILDPLATFORM node:24.18.0-alpine AS js-downloader
-WORKDIR /workspace
-RUN apk add --no-cache curl
-RUN mkdir -p src/static/js && \
-    echo "Downloading Tailwind CSS..." && \
-    curl -s -L -o src/static/js/tailwind.min.js "https://cdn.tailwindcss.com" && \
-    echo "Downloading Babel Standalone..." && \
-    curl -s -L -o src/static/js/babel.min.js "https://unpkg.com/@babel/standalone@8.0.1/babel.min.js" && \
-    echo "All JavaScript dependencies downloaded successfully!"
-RUN mkdir -p /bundle && \
-    npm install --prefix /bundle "react@19.2.7" "react-dom@19.2.7" esbuild --save=false && \
-    echo "import React from 'react'; import { createRoot } from 'react-dom/client'; export { React, createRoot };" \
-        > /bundle/entry.mjs && \
-    /bundle/node_modules/.bin/esbuild /bundle/entry.mjs \
-        --bundle --format=esm --log-level=silent \
-        --outfile=src/static/js/react-bundle.esm.js && \
-    echo "Bundled React 19 successfully!"
+# Copy source
+COPY . .
 
+# Build static binary
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /renovate-docker-operator ./cmd/
 
-FROM scratch
+# Runtime stage
+FROM alpine:3.21
+
+RUN apk --no-cache add ca-certificates tzdata \
+    && addgroup -g 12021 -S operator \
+    && adduser -u 12021 -S -G operator -H operator
+
+# Create data directory for SQLite
+RUN mkdir -p /data && chown operator:operator /data
+
 WORKDIR /app
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
-COPY --from=builder /workspace/renovate-operator /app/renovate-operator
-COPY --from=builder /workspace/static /app/static
-COPY --from=js-downloader /workspace/src/static/js /app/static/js
-USER 1000:1000
-ENTRYPOINT ["/app/renovate-operator"]
+
+COPY --from=builder /renovate-docker-operator /app/renovate-docker-operator
+
+# Copy static UI assets (if present in the build context)
+COPY --chown=operator:operator static/ /app/static/
+
+USER operator
+
+EXPOSE 8081
+
+ENTRYPOINT ["/app/renovate-docker-operator"]
