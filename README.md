@@ -23,7 +23,7 @@ This project is a fork of [**mogenius/renovate-operator**](https://github.com/mo
 ## Differences from Upstream
 
 | Aspect | [mogenius/renovate-operator](https://github.com/mogenius/renovate-operator) | renovate-docker-operator |
-|--------|-----------------------------------------------------------------------------|--------------------------|
+| -------- | ----------------------------------------------------------------------------- | -------------------------- |
 | Runtime | Kubernetes (CRDs, controller-runtime) | Docker (socket API) |
 | State store | Kubernetes CRDs + etcd | SQLite (WAL mode) |
 | Container orchestration | Kubernetes Jobs | Docker containers |
@@ -57,14 +57,41 @@ We share the same Forgejo webhook logic, discovery agent, and UI patterns as ups
 git clone https://github.com/oluf-tech/renovate-docker-operator.git
 cd renovate-docker-operator
 
-# 2. Set required env vars
-export RENOVATE_TOKEN="your-forgejo-token"
+# 2. Copy and edit environment file
+cp .env.example .env
+# Edit .env — set RENOVATE_TOKEN at minimum
 
 # 3. Start with Docker Compose
 docker compose up -d
 ```
 
 The UI is available at <http://localhost:8081>
+
+### Example: Running against Forgejo
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env`:
+
+```env
+PLATFORM_ENDPOINT=https://git.example.com
+RENOVATE_TOKEN=<your-forgejo-token>
+PLATFORM=forgejo
+```
+
+Then:
+
+```bash
+docker compose up -d
+# View logs
+docker compose logs -f
+# Open UI
+open http://localhost:8081
+```
+
+See [`docker-compose.yml`](docker-compose.yml) for all available options and [`.env.example`](.env.example) for the full variable reference.
 
 ---
 
@@ -73,7 +100,7 @@ The UI is available at <http://localhost:8081>
 All configuration is via environment variables:
 
 | Variable | Default | Description |
-|----------|---------|-------------|
+| ---------- | --------- | ------------- |
 | `PLATFORM_ENDPOINT` | *(required)* | Forgejo/Gitea instance URL |
 | `RENOVATE_TOKEN` | *(required)* | Platform access token for Renovate |
 | `PLATFORM` | `forgejo` | Platform type (`forgejo`, `gitea`, `github`, `gitlab`) |
@@ -107,7 +134,7 @@ Events to enable: **Issues** (edited) and **Pull Requests** (edited, closed, reo
 ### Authentication (Optional)
 
 | Variable | Default | Description |
-|----------|---------|-------------|
+| ---------- | --------- | ------------- |
 | `OIDC_ISSUER_URL` | *(empty)* | OIDC provider URL (leave empty for no-auth) |
 | `OIDC_CLIENT_ID` | *(empty)* | OAuth2 client ID |
 | `OIDC_CLIENT_SECRET` | *(empty)* | OAuth2 client secret |
@@ -119,7 +146,7 @@ Events to enable: **Issues** (edited) and **Pull Requests** (edited, closed, reo
 ### Discovery Filters
 
 | Variable | Default | Description |
-|----------|---------|-------------|
+| ---------- | --------- | ------------- |
 | `RENOVATE_DISCOVERY_FILTERS` | *(empty)* | Comma-separated repo patterns (e.g., `org/*,user/repo-*`) |
 | `RENOVATE_DISCOVER_TOPICS` | *(empty)* | Comma-separated topics to filter by |
 | `AUTODISCOVER_SKIP_FORKS` | `false` | Skip forked repositories |
@@ -130,7 +157,7 @@ Events to enable: **Issues** (edited) and **Pull Requests** (edited, closed, reo
 ## API Endpoints
 
 | Method | Path | Description |
-|--------|------|-------------|
+| -------- | ------ | ------------- |
 | `GET` | `/healthz` | Health check |
 | `GET` | `/api/v1/version` | Server version |
 | `GET` | `/api/v1/renovatejobs` | List all jobs with project statuses |

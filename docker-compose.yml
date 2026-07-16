@@ -4,34 +4,35 @@ services:
     container_name: renovate-docker-operator
     restart: unless-stopped
     ports:
-      - "8081:8081"
+      - "${SERVER_PORT:-8081}:${SERVER_PORT:-8081}"
     environment:
       # Required
-      PLATFORM_ENDPOINT: "https://git.example.com"
+      PLATFORM_ENDPOINT: "${PLATFORM_ENDPOINT:-https://git.example.com}"
       RENOVATE_TOKEN: "${RENOVATE_TOKEN}"
 
       # Optional overrides
-      PLATFORM: "forgejo"
-      RENOVATE_IMAGE: "renovate/renovate:latest"
-      CRON_SCHEDULE: "0 */4 * * *"
-      GLOBAL_PARALLELISM_LIMIT: "2"
-      SERVER_PORT: "8081"
-      LOG_LEVEL: "info"
+      PLATFORM: "${PLATFORM:-forgejo}"
+      RENOVATE_IMAGE: "${RENOVATE_IMAGE:-renovate/renovate:latest}"
+      CRON_SCHEDULE: "${CRON_SCHEDULE:-0 */4 * * *}"
+      GLOBAL_PARALLELISM_LIMIT: "${GLOBAL_PARALLELISM_LIMIT:-2}"
+      SERVER_PORT: "${SERVER_PORT:-8081}"
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      CONTAINER_NETWORK: "renovate"
 
       # Webhook (enabled by default)
-      WEBHOOK_SERVER_ENABLED: "true"
-      # WEBHOOK_SECRET: "${WEBHOOK_SECRET}"
+      WEBHOOK_SERVER_ENABLED: "${WEBHOOK_SERVER_ENABLED:-true}"
+      WEBHOOK_SECRET: "${WEBHOOK_SECRET:-}"
 
       # Auth (optional — leave blank for no-auth mode)
-      # OIDC_ISSUER_URL: "https://git.example.com/"
-      # OIDC_CLIENT_ID: "renovate-operator"
-      # OIDC_CLIENT_SECRET: "${OIDC_CLIENT_SECRET}"
-      # OIDC_REDIRECT_URL: "http://localhost:8081/auth/callback"
-      # SESSION_SECRET: "${SESSION_SECRET}"
+      OIDC_ISSUER_URL: "${OIDC_ISSUER_URL:-}"
+      OIDC_CLIENT_ID: "${OIDC_CLIENT_ID:-}"
+      OIDC_CLIENT_SECRET: "${OIDC_CLIENT_SECRET:-}"
+      OIDC_REDIRECT_URL: "${OIDC_REDIRECT_URL:-}"
+      SESSION_SECRET: "${SESSION_SECRET:-}"
 
       # Discovery filters (optional)
-      # RENOVATE_DISCOVERY_FILTERS: "org1/*,org2/repo-*"
-      # AUTODISCOVER_SKIP_FORKS: "true"
+      RENOVATE_DISCOVERY_FILTERS: "${RENOVATE_DISCOVERY_FILTERS:-}"
+      AUTODISCOVER_SKIP_FORKS: "${AUTODISCOVER_SKIP_FORKS:-false}"
     volumes:
       # Persist SQLite database
       - operator-data:/data
@@ -39,16 +40,23 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - renovate
-
-  # Optional: use Forgejo as OIDC provider
-  # forgejo:
-  #   image: codeberg.org/forgejo/forgejo:11
-  #   ...
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--quiet",
+          "--tries=1",
+          "--spider",
+          "http://localhost:${SERVER_PORT:-8081}/healthz",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 volumes:
   operator-data:
-    driver: local
-  renovate-cache:
     driver: local
 
 networks:
