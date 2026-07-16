@@ -1,132 +1,209 @@
-<div align="center">
-    <img src="src/static/assets/logo.png" alt="Renovate Operator Logo" width="290">
-</div>
+# renovate-docker-operator
 
-<br>
-
-[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/mogenius)](https://artifacthub.io/packages/helm/mogenius/renovate-operator)
-![GitHub Release](https://img.shields.io/github/v/release/mogenius/renovate-operator)
-[![Build, Package, Release (Production)](https://github.com/mogenius/renovate-operator/actions/workflows/release.yaml/badge.svg)](https://github.com/mogenius/renovate-operator/actions/workflows/release.yaml)
+A standalone Docker-based operator for running [Renovate](https://github.com/renovatebot/renovate) against Forgejo/Gitea instances. Manages Renovate containers via Docker socket — no Kubernetes required.
 
 ---
 
-# Renovate: The Kubernetes-Native Way
+## Origin & Motivation
 
-Run [Renovate][1] on your own infrastructure with CRD-based scheduling, parallel execution, auto-discovery, and a built-in UI. If you self-host Renovate and already run Kubernetes, this operator gives you the control and observability that plain self-hosted setups lack.
+This project is a fork of [**mogenius/renovate-operator**](https://github.com/mogenius/renovate-operator), adapted for environments that don't run Kubernetes.
 
-**Supports all Renovate platforms:** GitHub, GitLab, Bitbucket, Azure DevOps, Gitea, and more. The operator works with any [platform supported by Renovate][4] - simply configure your credentials and platform settings via environment variables or secrets. Note that some platforms have additional operator-specific features like native webhook integrations for GitHub and GitLab.
+**Why does this exist?**
 
-### Comparison with Mend Renovate CE
+1. **Renovate CE/EE does not support Forgejo.** The feature request ([mend-io/renovate-ce-ee#173](https://github.com/mend-io/renovate-ce-ee/issues/173)) was locked and closed without resolution. If you self-host Forgejo, Mend's commercial offering simply won't work.
 
-| Feature | [Mend Renovate CLI][3]| [Mend Renovate Community Self-Hosted (aka "CE")][2] | Renovate Operator |
-|:---|:---:|:---:|:---:|
-| Fully open source, no signup or license key | ✅ | ❌ | ✅ |
-| Automated dependency updates | ✅ | ✅ | ✅ |
-| Runs on your own infrastructure | ✅ | ✅ | ✅ |
-| Auto-discovery | ✅ | ✅ | ✅ |
-| Webhook API for on-demand runs | ❌ | ✅ | ✅ |
-| Web UI | ❌ | ❌ | ✅ |
-| Declarative cron scheduling via CRD | ❌ | ❌ | ✅ |
-| Auto-discovery with group/topic filtering | ❌ | ❌ | ✅ |
-| Per-project status tracking in-cluster | ❌ | ❌ | ✅ |
-| Parallel execution with concurrency control | ❌ | ❌ | ✅ |
-| Prometheus metrics & health checks | ❌ | ✅ | ✅ |
-| Kubernetes-native pod scheduling | ❌ | ❌ | ✅ |
-| Leader election for high availability | ❌ | ❌ | ✅ |
-| Job lifecycle management (TTL, deadlines, retries) | ❌ | ❌ | ✅ |
+2. **The upstream renovate-operator is Kubernetes-only.** It relies on CRDs, controller-runtime, and Kubernetes Jobs for container orchestration — a non-starter if your infrastructure is Docker Compose, Podman, or a single VM.
 
-### How it works
+3. **This project extracts the core logic into a standalone binary** that talks directly to the Docker socket. Same features (priority queues, parallelism, webhooks, discovery, UI), zero Kubernetes dependencies, single ~20 MB binary + SQLite for state.
 
-1. At the defined time of your schedule, a renovate discovery job is started
-2. After the discovery finished, you will be able to see all your discovered projects in the UI
-3. All projects are now being set to be scheduled
-4. Every 10 seconds the operator checks for scheduled projects and starts a new renovate job
-5. Only as many jobs as defined in `spec.parallelism` are getting executed at the same time
+> **Credit:** The Forgejo webhook handling, repository discovery agent, priority queue, and web UI patterns all originate from the excellent work by the [mogenius](https://github.com/mogenius) team. Thank you for building this in the open.
 
-![Example Screenshot of the renovate-operator UI.](/docs/assets/ui-example.png)
+---
 
-## Installation
+## Differences from Upstream
 
-### Helm
+| Aspect | [mogenius/renovate-operator](https://github.com/mogenius/renovate-operator) | renovate-docker-operator |
+|--------|-----------------------------------------------------------------------------|--------------------------|
+| Runtime | Kubernetes (CRDs, controller-runtime) | Docker (socket API) |
+| State store | Kubernetes CRDs + etcd | SQLite (WAL mode) |
+| Container orchestration | Kubernetes Jobs | Docker containers |
+| Configuration | CRDs + ConfigMaps | Environment variables |
+| Image size | ~50 MB (requires K8s cluster) | ~20 MB standalone binary |
+| Dependencies | controller-runtime, client-go | Docker SDK, modernc.org/sqlite |
+| Auth | OIDC + GitHub OAuth | Same (OIDC + GitHub OAuth + no-auth) |
+| Platforms | Forgejo, Gitea, GitHub, GitLab | Same |
+| Renovate features | Priority queue, parallelism, webhooks, UI | Same |
+| Deployment | Helm chart, K8s cluster | docker-compose or bare binary |
 
-#### Option 1: OCI Registry
+We share the same Forgejo webhook logic, discovery agent, and UI patterns as upstream. This means improvements from [mogenius/renovate-operator](https://github.com/mogenius/renovate-operator) can be cherry-picked into this project when relevant.
 
-```sh
-helm -n renovate-operator upgrade --install renovate-operator \
-  oci://ghcr.io/mogenius/helm-charts/renovate-operator \
-  --create-namespace --wait
+---
+
+## Features
+
+- **Docker-native**: No Kubernetes required. Manages Renovate containers via Docker socket.
+- **SQLite state**: Lightweight persistence with WAL mode for concurrent access.
+- **Webhook-driven**: Forgejo webhooks trigger immediate Renovate runs on PR/issue changes.
+- **Cron scheduling**: Automatic discovery and execution on configurable cron schedules.
+- **Web UI**: Dashboard showing job status, project runs, and streaming logs.
+- **OIDC auth**: Optional authentication via any OIDC provider (Forgejo itself works!).
+
+---
+
+## Quick Start
+
+```bash
+# 1. Clone
+git clone https://github.com/oluf-tech/renovate-docker-operator.git
+cd renovate-docker-operator
+
+# 2. Set required env vars
+export RENOVATE_TOKEN="your-forgejo-token"
+
+# 3. Start with Docker Compose
+docker compose up -d
 ```
 
-#### Option 2: Helm Repository
+The UI is available at <http://localhost:8081>
 
-```sh
-helm repo add mogenius https://helm.mogenius.com/public --force-update
-helm -n renovate-operator upgrade --install renovate-operator mogenius/renovate-operator --create-namespace --wait
+---
+
+## Configuration
+
+All configuration is via environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PLATFORM_ENDPOINT` | *(required)* | Forgejo/Gitea instance URL |
+| `RENOVATE_TOKEN` | *(required)* | Platform access token for Renovate |
+| `PLATFORM` | `forgejo` | Platform type (`forgejo`, `gitea`, `github`, `gitlab`) |
+| `RENOVATE_IMAGE` | `renovate/renovate:latest` | Docker image for Renovate |
+| `CRON_SCHEDULE` | `0 */4 * * *` | Cron expression for discovery+run cycles |
+| `GLOBAL_PARALLELISM_LIMIT` | `2` | Max concurrent Renovate containers |
+| `SERVER_PORT` | `8081` | HTTP server port (UI + webhook + API) |
+| `SQLITE_PATH` | `/data/renovate.db` | Path to SQLite database |
+| `CACHE_VOLUME` | `renovate-cache` | Docker volume for Renovate cache |
+| `CONTAINER_NETWORK` | *(empty)* | Docker network for Renovate containers |
+| `IMAGE_PULL_POLICY` | `if-not-present` | When to pull image (`always`, `if-not-present`, `never`) |
+| `JOB_TIMEOUT_SECONDS` | `1800` | Max runtime per Renovate container (30 min) |
+| `SHUTDOWN_GRACE_PERIOD` | `300` | Grace period for stopping containers on shutdown (5 min) |
+| `LOG_LEVEL` | `info` | Log level (`debug`, `info`, `warn`, `error`) |
+
+### Webhook Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `WEBHOOK_SERVER_ENABLED` | `true` | Enable webhook endpoint |
+| `WEBHOOK_SECRET` | *(empty)* | Comma-separated HMAC secrets for webhook validation |
+
+Configure your Forgejo instance to send webhooks to:
+
+```
+http://renovate-operator:8081/webhook/v1/forgejo?job=default
 ```
 
-## Documentation
+Events to enable: **Issues** (edited) and **Pull Requests** (edited, closed, reopened).
 
-- **Platform Setup**
-  - [GitLab](./docs/platforms/gitlab.md)
-  - [GitHub PAT](./docs/platforms/github-pat.md)
-  - [GitHub App - External Secrets Operator](./docs/platforms/github-app-eso.md)
-  - [GitHub App - Native (Beta)](./docs/platforms/github-app-native.md)
-  - _Azure DevOps, Bitbucket, Gitea, Forgejo, and others: configure via `extraEnv`_ ([see Renovate platform docs](./docs/platforms/generic.md))
-- [Autodiscovery](./docs/autodiscovery.md)
-- Webhook API
-  - [Generic](./docs/webhooks/webhook.md)
-  - [Automatic Webhook Sync](./docs/webhooks/sync.md)
-  - [Forgejo](./docs/webhooks/forgejo.md)
-  - [Gitea](./docs/webhooks/gitea.md)
-  - [GitHub](./docs/webhooks/github.md)
-  - [GitLab](./docs/webhooks/gitlab.md)
-  - [Bitbucket](./docs/webhooks/bitbucket.md)
-- [Using a config.js](./docs/extra-volumes.md)
-- [Image Pull Secrets](./docs/image-pull-secrets.md)
-- [Scheduling](./docs/scheduling.md)
-- [Annotation Triggers](./docs/annotation-triggers.md)
-- [Metrics](./docs/metrics.md)
-- [PR Activity](./docs/pr-activity.md)
-- [Authentication](./docs/auth.md)
-- [Serving the UI under a Sub-Path](./docs/base-path.md)
-- [Valkey / Redis Cache](./docs/valkey.md)
-- [S3 Object Storage](./docs/s3.md)
+### Authentication (Optional)
 
-## Contributing
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OIDC_ISSUER_URL` | *(empty)* | OIDC provider URL (leave empty for no-auth) |
+| `OIDC_CLIENT_ID` | *(empty)* | OAuth2 client ID |
+| `OIDC_CLIENT_SECRET` | *(empty)* | OAuth2 client secret |
+| `OIDC_REDIRECT_URL` | *(empty)* | OAuth2 redirect URL |
+| `SESSION_SECRET` | *(auto-generated)* | AES key for session cookies |
 
-<a href="https://github.com/mogenius/renovate-operator/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=mogenius/renovate-operator" />
-</a>
+**Tip**: Use Forgejo itself as your OIDC provider! Forgejo 1.22+ has built-in OAuth2 provider support. Create an OAuth2 application in Forgejo settings and point `OIDC_ISSUER_URL` at your Forgejo instance.
 
-Made with [contrib.rocks](https://contrib.rocks).
+### Discovery Filters
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RENOVATE_DISCOVERY_FILTERS` | *(empty)* | Comma-separated repo patterns (e.g., `org/*,user/repo-*`) |
+| `RENOVATE_DISCOVER_TOPICS` | *(empty)* | Comma-separated topics to filter by |
+| `AUTODISCOVER_SKIP_FORKS` | `false` | Skip forked repositories |
+| `CRON_SKIP_DISCOVERY` | `false` | Skip discovery on cron (only run known projects) |
+
+---
+
+## API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/healthz` | Health check |
+| `GET` | `/api/v1/version` | Server version |
+| `GET` | `/api/v1/renovatejobs` | List all jobs with project statuses |
+| `POST` | `/api/v1/renovate` | Trigger Renovate for a project |
+| `POST` | `/api/v1/renovate/all` | Trigger all projects |
+| `POST` | `/api/v1/renovate/cancel` | Cancel a running project |
+| `GET` | `/api/v1/logs?renovate=X&project=Y` | Stream logs (SSE) |
+| `POST` | `/api/v1/discovery/start` | Trigger discovery |
+| `POST` | `/api/v1/executionOptions` | Update debug mode |
+| `POST` | `/webhook/v1/forgejo?job=X` | Forgejo webhook receiver |
+| `POST` | `/webhook/v1/schedule?project=X&job=Y` | Manual schedule trigger |
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────┐
+│          renovate-docker-operator       │
+├─────────────────────────────────────────┤
+│  HTTP Server (port 8081)                │
+│  ├── /webhook/v1/* (Forgejo hooks)      │
+│  ├── /api/v1/*     (REST API)           │
+│  ├── /healthz      (health)             │
+│  └── /*            (static UI)          │
+├─────────────────────────────────────────┤
+│  Scheduler (robfig/cron)                │
+│  └── Discovery → Schedule → Dispatch    │
+├─────────────────────────────────────────┤
+│  Docker Executor                        │
+│  ├── Container create/start/wait/logs   │
+│  ├── Priority queue dispatch            │
+│  └── Docker Events API (exit detect)    │
+├─────────────────────────────────────────┤
+│  SQLite State Store (WAL mode)          │
+│  └── Jobs, Projects, Logs, Webhooks     │
+└─────────────────────────────────────────┘
+         │
+         ▼ Docker Socket
+┌─────────────────────────────────────────┐
+│  renovate/renovate containers           │
+│  (one per project, max parallelism)     │
+└─────────────────────────────────────────┘
+```
+
+---
 
 ## Development
 
-**Running the operator locally**
+```bash
+# Build
+go build ./cmd/
 
-Prerequisites: [`just`](https://github.com/casey/just) must be installed.
+# Run tests
+go test ./...
 
-1. Export `KUBECONFIG` with the **absolute path** to your kubeconfig — `~` is not expanded, so use `$HOME` or the full path:
-   ```sh
-   export KUBECONFIG=/Users/yourname/.kube/config
-   # or
-   export KUBECONFIG=$HOME/.kube/config
-   ```
-2. Start the operator against the current context in that kubeconfig:
-   ```sh
-   just run
-   ```
+# Run locally (requires Docker and PLATFORM_ENDPOINT)
+export PLATFORM_ENDPOINT="https://git.example.com"
+export RENOVATE_TOKEN="your-token"
+export SQLITE_PATH="./test.db"
+./renovate-docker-operator
+```
 
-**Running Tests**
+---
 
-| Command              | Description                      |
-|----------------------|----------------------------------|
-| `just test-unit`     | Run the unit test suite          |
-| `just golangci-lint` | Run the linter                   |
-| `just check`         | Run all checks (tests + linters) |
-| `just generate`      | Regenerate CRDs                  |
+## Related Projects
 
-[1]: https://github.com/renovatebot/renovate
-[2]: https://docs.mend.io/renovate/latest/
-[3]: https://docs.renovatebot.com/
-[4]: https://docs.renovatebot.com/modules/platform/
+- [**mogenius/renovate-operator**](https://github.com/mogenius/renovate-operator) — Original Kubernetes-based operator (upstream)
+- [**renovatebot/renovate**](https://github.com/renovatebot/renovate) — Renovate itself
+- [**mend-io/renovate-ce-ee**](https://github.com/mend-io/renovate-ce-ee) — Official Mend Renovate CE/EE (no Forgejo support)
+
+---
+
+## License
+
+Apache 2.0 — see [LICENSE](LICENSE).

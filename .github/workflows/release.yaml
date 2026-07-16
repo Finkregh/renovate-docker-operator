@@ -1,127 +1,65 @@
-name: Build, Package, Release (Production)
+name: Build & Release Container
 
 on:
   push:
     tags:
       - '[0-9]*.[0-9]*.[0-9]*'
 
-env:
-  REGISTRY: ghcr.io
-  DOCKERFILE: Dockerfile
-  HELMNAME: "renovate-operator"
-
 jobs:
-  build-operator:
-    uses: mogenius/github-actions/.github/workflows/build-multiarch.yml@9bbef6f2531206a2cc3e41b0649704a80f2d4185 # v1.7.0
-    secrets: inherit
-    with:
-      version: ${{ github.ref_name }}
-      image: ghcr.io/mogenius/renovate-operator
-      push_latest: true
+  build-container:
+    runs-on: ubuntu-latest
+    env:
+      DOCKER_HOST: tcp://docker_dind:2375
+    container:
+      image: node:24-bookworm@sha256:8530f76a96d88820d288761f022e318970dda93d01536919fbc16076b7983e63
+      options: >-
+        --privileged
+      env:
+        DOCKER_HOST: tcp://docker_dind:2375
 
-  helm-chart:
-    needs: [build-operator]
-    runs-on: self-hosted
-    permissions:
-      contents: write
-      packages: write
-      id-token: write
     steps:
-      - name: Generate a token
-        id: generate-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          client-id: ${{ secrets.RELEASE_APP_ID }}
-          private-key: ${{ secrets.RELEASE_APP_SECRET }}
-
-      - name: Check out code
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          ref: main
-          fetch-depth: 0
-          token: ${{ steps.generate-token.outputs.token }}
-
-      - name: Configure Git
+      - name: Get server domain
+        id: server_domain
+        shell: bash
         run: |
-          git config user.name "$GITHUB_ACTOR"
-          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+          echo "server_domain=$(echo '${{ github.api_url }}' | awk -F'[/:]' '{print $4}')" >> "$GITHUB_OUTPUT"
 
-      - name: Install Helm
-        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
-        id: install
-
-      - name: Install cosign
-        uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
-
-      - name: Set up Go
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+      - uses: https://code.forgejo.org/actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v6.0.2
         with:
-          go-version: ">=1.23.2"
+          fetch-tags: true
+          fetch-depth: 10
 
-      - name: Run helm-docs
-        uses: losisin/helm-docs-github-action@3a4528e97c49a5e83de6b78c50c61c8ee5c9f944 # v2.0.0
-        with:
-          chart-search-root: charts/renovate-operator
+      - name: Install Docker
+        run: |
+          apt-get update
+          apt-get install -y ca-certificates curl gnupg
+          install -m 0755 -d /etc/apt/keyrings
+          curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+          chmod a+r /etc/apt/keyrings/docker.asc
+          echo \
+            "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian \
+            $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+            tee /etc/apt/sources.list.d/docker.list > /dev/null
+          apt-get update
+          apt-get install -y docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
-      - name: Log in to Container Registry
-        uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+      - name: Setup Docker Buildx
+        uses: https://github.com/docker/setup-buildx-action@f211e3e9ded2d9377c8cadc4489a4e38014bc4c9 # v1
+
+      - name: Login to Container Registry
+        uses: https://github.com/docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ${{ steps.server_domain.outputs.server_domain }}
           username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.PACKAGE_UPLOAD_TOKEN }}
 
-      - name: Add Helm repositories
-        run: |
-          helm repo add valkey https://valkey.io/valkey-helm/
-          helm repo update
-
-      - name: package and push
-        run: |
-          VERSION=${{ github.ref_name }}
-
-          sed -i "s/^version:.*/version: $VERSION/" charts/renovate-operator/Chart.yaml
-          sed -i "s/^appVersion:.*/appVersion: $VERSION/" charts/renovate-operator/Chart.yaml
-
-          git add charts/renovate-operator/Chart.yaml
-
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
-          else
-            export GOPATH=$(go env GOPATH)
-            export PATH=$PATH:$GOPATH/bin
-
-            echo "Installing controller-gen"
-            go install sigs.k8s.io/controller-tools/cmd/controller-gen@latest
-
-            echo "Generating CRDs"
-            controller-gen crd paths=./src/... output:crd:dir=charts/renovate-operator/crd
-
-            git add charts/renovate-operator/crd/*.mogenius.com_*.yaml
-
-            echo "Building dependencies"
-            helm dependency build ./charts/renovate-operator
-
-            echo "Packaging Helm chart"
-            helm package -d /tmp/ ./charts/renovate-operator
-
-            echo "Pushing to Helm repository"
-            curl -XPOST -L -k --data-binary "@/tmp/${{ env.HELMNAME }}-$VERSION.tgz" https://${{ secrets.MO_HELMUSER }}:${{ secrets.MO_HELMPASS }}@helm.mogenius.com/api/public/charts
-
-            echo "Pushing to OCI registry"
-            echo ${{ secrets.GITHUB_TOKEN }} | helm registry login ghcr.io --username ${{ github.actor }} --password-stdin
-            CHART_DIGEST=$(helm push /tmp/${{ env.HELMNAME }}-$VERSION.tgz oci://ghcr.io/${{ github.repository_owner }}/helm-charts 2>&1 | grep "Digest: sha256:" | awk '{print $2}')
-
-            if [ -z "$CHART_DIGEST" ]; then
-              echo "Failed to extract chart digest"
-              exit 1
-            fi
-            echo "Chart digest: $CHART_DIGEST"
-
-            echo "Signing Helm chart with cosign"
-            cosign sign --yes ghcr.io/${{ github.repository_owner }}/helm-charts/${{ env.HELMNAME }}@${CHART_DIGEST}
-
-            git commit -m "chore: update Chart.yaml and documentation for version $VERSION [skip ci]"
-
-            git pull --rebase
-            git push origin main
-          fi
+      - name: Build and Push
+        uses: https://github.com/docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.server_domain.outputs.server_domain }}/${{ github.repository }}:${{ github.ref_name }}
+            ${{ steps.server_domain.outputs.server_domain }}/${{ github.repository }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
