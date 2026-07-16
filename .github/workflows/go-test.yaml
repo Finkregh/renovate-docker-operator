@@ -8,14 +8,23 @@ on:
     branches:
       - main
 
+env:
+  GO_VERSION: "1.25.0"
+
 jobs:
   build:
     runs-on: ubuntu-latest
     container:
-      image: golang:1.25-bookworm
+      image: node:24-bookworm
 
     steps:
       - uses: https://code.forgejo.org/actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v6.0.2
+
+      - name: Install Go
+        run: |
+          curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | tar -C /usr/local -xz
+          echo "/usr/local/go/bin" >> "$GITHUB_PATH"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Download dependencies
         run: go mod download
@@ -27,10 +36,16 @@ jobs:
     needs: [build]
     runs-on: ubuntu-latest
     container:
-      image: golang:1.25-bookworm
+      image: node:24-bookworm
 
     steps:
       - uses: https://code.forgejo.org/actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v6.0.2
+
+      - name: Install Go
+        run: |
+          curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | tar -C /usr/local -xz
+          echo "/usr/local/go/bin" >> "$GITHUB_PATH"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Download dependencies
         run: go mod download
@@ -42,10 +57,20 @@ jobs:
     needs: [build]
     runs-on: ubuntu-latest
     container:
-      image: golangci/golangci-lint:latest
+      image: node:24-bookworm
 
     steps:
       - uses: https://code.forgejo.org/actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v6.0.2
+
+      - name: Install Go
+        run: |
+          curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | tar -C /usr/local -xz
+          echo "/usr/local/go/bin" >> "$GITHUB_PATH"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Install golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b /usr/local/bin
 
       - name: Lint
         run: golangci-lint run --timeout=10m --config=.golangci.yml
