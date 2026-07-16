@@ -22,7 +22,7 @@ jobs:
 
       - name: Get release info
         id: release
-        uses: https://git.h.oluflorenzen.de/actions/actions/release-with-cog@main
+        uses: https://git.h.oluflorenzen.de/finkregh/actions/actions/release-with-cog@main
         with:
           dry-run: "true"
           dev_version_suffix: "_dev"
