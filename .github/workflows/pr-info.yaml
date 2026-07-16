@@ -18,7 +18,7 @@ jobs:
       - uses: https://code.forgejo.org/actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v6.0.2
         with:
           fetch-tags: true
-          fetch-depth: 30
+          #fetch-depth: 30
 
       - name: Get release info
         id: release
