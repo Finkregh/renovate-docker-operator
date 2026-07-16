@@ -1,0 +1,25 @@
+# branch_whitelist = ["main"]
+
+ignore_merge_commits = true
+
+# A list of commands to run AFTER creating a version
+post_bump_hooks = [
+  "git push",
+  "git push origin {{version}}",
+  "forgejo-curl.sh --verbose api_json --data-raw '{\"name\":\"{{version}}\",\"tag_name\":\"{{version}}\"}' ${FORGEJO_SERVER_URL}/api/v1/repos/${FORGEJO_REPOSITORY}/releases",
+]
+
+[commit_types]
+chore = { bump_patch = true }
+revert = { bump_minor = true }
+docs = { bump_patch = true }
+style = { bump_patch = true }
+perf = { bump_patch = true }
+
+# Changelog configuration
+[changelog]
+path = "CHANGELOG.md"
+template = "remote"
+remote = "https://git.h.oluflorenzen.de"
+repository = "renovate-docker-operator"
+owner = "finkregh"
