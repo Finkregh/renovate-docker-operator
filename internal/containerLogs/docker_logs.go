@@ -36,6 +36,6 @@ func (r *DockerLogReader) GetLogs(ctx context.Context, containerID string) ([]by
 	if err != nil {
 		return nil, err
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 	return io.ReadAll(reader)
 }

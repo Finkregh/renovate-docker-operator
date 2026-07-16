@@ -20,11 +20,17 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		fmt.Fprintf(os.Stderr, "fatal: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	// 1. Load configuration (fail fast on missing required vars)
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "fatal: failed to load config: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to load config: %w", err)
 	}
 
 	// 2. Set up structured logger
@@ -45,10 +51,9 @@ func main() {
 	// 3. Open SQLite state store (runs migrations and seeds default job if empty)
 	store, err := statestore.New(cfg.SQLitePath, logger)
 	if err != nil {
-		logger.Error("failed to open state store", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to open state store: %w", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	logger.Info("state store opened", "path", cfg.SQLitePath)
 
 	// 4. Create Docker executor
@@ -64,15 +69,13 @@ func main() {
 
 	exec, err := executor.New(execCfg, store, logger)
 	if err != nil {
-		logger.Error("failed to create docker executor", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to create docker executor: %w", err)
 	}
 
 	// Verify Docker connectivity
 	ctx := context.Background()
 	if err := exec.Ping(ctx); err != nil {
-		logger.Error("docker connectivity check failed", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("docker connectivity check failed: %w", err)
 	}
 	logger.Info("docker connectivity verified")
 
@@ -81,8 +84,7 @@ func main() {
 
 	// 6. Start executor (dispatch loop + events listener)
 	if err := exec.Start(ctx); err != nil {
-		logger.Error("failed to start executor", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to start executor: %w", err)
 	}
 
 	// 7. Set up cron scheduler
@@ -90,8 +92,7 @@ func main() {
 	if err := sched.AddFunc(cfg.CronSchedule, "discovery+dispatch", func() {
 		runScheduledCycle(ctx, disc, store, logger, cfg.CronSkipDiscovery)
 	}); err != nil {
-		logger.Error("failed to add cron schedule", "error", err, "schedule", cfg.CronSchedule)
-		os.Exit(1)
+		return fmt.Errorf("failed to add cron schedule %q: %w", cfg.CronSchedule, err)
 	}
 	sched.Start()
 
@@ -127,18 +128,13 @@ func main() {
 		logger.Info("executor stopped")
 	}
 
-	if err := store.Close(); err != nil {
-		logger.Error("state store close error", "error", err)
-	} else {
-		logger.Info("state store closed")
-	}
-
 	logger.Info("shutdown complete")
+	return nil
 }
 
 // runScheduledCycle runs discovery for all jobs, then the executor's dispatch
 // loop will pick up newly scheduled projects on its next tick.
-func runScheduledCycle(ctx context.Context, disc *discovery.DiscoveryAgent, store *statestore.SQLiteStore, logger *slog.Logger, skipDiscovery bool) {
+func runScheduledCycle(ctx context.Context, disc *discovery.Agent, store *statestore.SQLiteStore, logger *slog.Logger, skipDiscovery bool) {
 	if skipDiscovery {
 		logger.Info("cron fired but discovery is skipped (CRON_SKIP_DISCOVERY=true)")
 		return

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -14,7 +15,7 @@ func TestHealthEndpoint(t *testing.T) {
 	router := mux.NewRouter()
 	router.HandleFunc("/healthz", s.healthHandler).Methods("GET")
 
-	req := httptest.NewRequest("GET", "/healthz", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/healthz", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -37,7 +38,7 @@ func TestVersionEndpoint(t *testing.T) {
 	router := mux.NewRouter()
 	router.HandleFunc("/api/v1/version", s.getVersion).Methods("GET")
 
-	req := httptest.NewRequest("GET", "/api/v1/version", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/version", nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 

@@ -98,6 +98,7 @@ type ProjectStatus struct {
 // RenovateProjectStatus represents the lifecycle state of a project run.
 type RenovateProjectStatus string
 
+// Possible values for RenovateProjectStatus.
 const (
 	JobStatusScheduled RenovateProjectStatus = "scheduled"
 	JobStatusRunning   RenovateProjectStatus = "running"
@@ -109,6 +110,7 @@ const (
 // PRAction represents what happened to a PR in a Renovate run.
 type PRAction string
 
+// Possible values for PRAction.
 const (
 	PRActionAutomerged    PRAction = "automerged"
 	PRActionCreated       PRAction = "created"

@@ -1,6 +1,7 @@
 package statestore
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 )
@@ -86,8 +87,10 @@ CREATE INDEX IF NOT EXISTS idx_execution_history_project ON execution_history(jo
 
 // runMigrations applies any pending schema migrations to the database.
 func runMigrations(db *sql.DB) error {
+	ctx := context.Background()
+
 	// Ensure the schema_migrations table exists (bootstrap).
-	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+	_, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
 		version INTEGER PRIMARY KEY,
 		applied_at TEXT NOT NULL DEFAULT (datetime('now'))
 	)`)
@@ -97,24 +100,24 @@ func runMigrations(db *sql.DB) error {
 
 	// Determine the current schema version.
 	var current int
-	row := db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_migrations`)
+	row := db.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_migrations`)
 	if err := row.Scan(&current); err != nil {
 		return fmt.Errorf("reading current schema version: %w", err)
 	}
 
 	// Apply migrations that haven't been applied yet.
 	for i := current; i < len(migrations); i++ {
-		tx, err := db.Begin()
+		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {
 			return fmt.Errorf("begin migration %d: %w", i+1, err)
 		}
 
-		if _, err := tx.Exec(migrations[i]); err != nil {
+		if _, err := tx.ExecContext(ctx, migrations[i]); err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("applying migration %d: %w", i+1, err)
 		}
 
-		if _, err := tx.Exec(`INSERT INTO schema_migrations (version) VALUES (?)`, i+1); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations (version) VALUES (?)`, i+1); err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("recording migration %d: %w", i+1, err)
 		}

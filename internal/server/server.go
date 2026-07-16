@@ -26,7 +26,7 @@ import (
 // Server is the unified HTTP server that handles UI, webhook, health and API.
 type Server struct {
 	store     statestore.RenovateJobManager
-	discovery *discovery.DiscoveryAgent
+	discovery *discovery.Agent
 	scheduler *scheduler.Scheduler
 	webhook   *webhook.Handler
 	logger    *slog.Logger
@@ -43,7 +43,7 @@ type Config struct {
 // New creates a new unified server.
 func New(
 	store statestore.RenovateJobManager,
-	disc *discovery.DiscoveryAgent,
+	disc *discovery.Agent,
 	sched *scheduler.Scheduler,
 	logger *slog.Logger,
 	version string,
@@ -297,7 +297,7 @@ func (s *Server) getRenovateJobLogs(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to get logs"})
 		return
 	}
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	// Stream as Server-Sent Events
 	w.Header().Set("Content-Type", "text/event-stream")

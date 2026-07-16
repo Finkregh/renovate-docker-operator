@@ -11,6 +11,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -100,8 +101,9 @@ func (s *SQLiteStore) Close() error {
 
 // seedDefaultJob inserts a "default" RenovateJob if the jobs table is empty.
 func (s *SQLiteStore) seedDefaultJob() error {
+	ctx := context.Background()
 	var count int
-	if err := s.readDB.QueryRow(`SELECT COUNT(*) FROM renovate_jobs`).Scan(&count); err != nil {
+	if err := s.readDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM renovate_jobs`).Scan(&count); err != nil {
 		return err
 	}
 	if count > 0 {
@@ -117,7 +119,7 @@ func (s *SQLiteStore) seedDefaultJob() error {
 	discoverTopics := commaSepToJSON(os.Getenv("RENOVATE_DISCOVER_TOPICS"))
 	skipForks := boolToInt(os.Getenv("AUTODISCOVER_SKIP_FORKS"))
 
-	_, err := s.writeDB.Exec(`INSERT INTO renovate_jobs
+	_, err := s.writeDB.ExecContext(ctx, `INSERT INTO renovate_jobs
 		(name, schedule, image, platform, endpoint, discovery_filters, discover_topics, skip_forks, parallelism)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		"default", schedule, image, platform, endpoint, discoveryFilters, discoverTopics, skipForks, parallelism,
@@ -138,12 +140,13 @@ func (s *SQLiteStore) seedDefaultJob() error {
 // Interface implementation
 // ---------------------------------------------------------------------------
 
+// ListRenovateJobs returns all job identifiers.
 func (s *SQLiteStore) ListRenovateJobs(ctx context.Context) ([]RenovateJobIdentifier, error) {
 	rows, err := s.readDB.QueryContext(ctx, `SELECT name FROM renovate_jobs`)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var result []RenovateJobIdentifier
 	for rows.Next() {
@@ -156,6 +159,7 @@ func (s *SQLiteStore) ListRenovateJobs(ctx context.Context) ([]RenovateJobIdenti
 	return result, rows.Err()
 }
 
+// ListRenovateJobsFull returns all jobs with full details and projects.
 func (s *SQLiteStore) ListRenovateJobsFull(ctx context.Context) ([]api.RenovateJob, error) {
 	rows, err := s.readDB.QueryContext(ctx, `SELECT name, schedule, image, platform, endpoint,
 		discovery_filters, discover_topics, skip_forks, skip_pending_deletion,
@@ -165,7 +169,7 @@ func (s *SQLiteStore) ListRenovateJobsFull(ctx context.Context) ([]api.RenovateJ
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var jobs []api.RenovateJob
 	for rows.Next() {
@@ -184,6 +188,7 @@ func (s *SQLiteStore) ListRenovateJobsFull(ctx context.Context) ([]api.RenovateJ
 	return jobs, rows.Err()
 }
 
+// GetRenovateJob returns a single job by name.
 func (s *SQLiteStore) GetRenovateJob(ctx context.Context, name string) (*api.RenovateJob, error) {
 	row := s.readDB.QueryRowContext(ctx, `SELECT name, schedule, image, platform, endpoint,
 		discovery_filters, discover_topics, skip_forks, skip_pending_deletion,
@@ -193,7 +198,7 @@ func (s *SQLiteStore) GetRenovateJob(ctx context.Context, name string) (*api.Ren
 
 	job, err := scanRenovateJobRow(row)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, err
@@ -207,10 +212,12 @@ func (s *SQLiteStore) GetRenovateJob(ctx context.Context, name string) (*api.Ren
 	return job, nil
 }
 
+// GetProjectsForRenovateJob returns all project statuses for a job.
 func (s *SQLiteStore) GetProjectsForRenovateJob(ctx context.Context, job RenovateJobIdentifier) ([]RenovateProjectStatus, error) {
 	return s.loadRenovateProjectStatuses(ctx, job.Name)
 }
 
+// UpdateProjectStatus updates the status of a specific project.
 func (s *SQLiteStore) UpdateProjectStatus(ctx context.Context, project string, job RenovateJobIdentifier, status *RenovateStatusUpdate) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 
@@ -250,6 +257,7 @@ func (s *SQLiteStore) UpdateProjectStatus(ctx context.Context, project string, j
 	return nil
 }
 
+// UpdateProjectStatusBatched updates status for all matching projects in a batch.
 func (s *SQLiteStore) UpdateProjectStatusBatched(ctx context.Context, fn func(p api.ProjectStatus) bool, job RenovateJobIdentifier, status *RenovateStatusUpdate) error {
 	// Load all projects for the job.
 	projects, err := s.loadProjects(ctx, job.Name)
@@ -295,7 +303,7 @@ func (s *SQLiteStore) UpdateProjectStatusBatched(ctx context.Context, fn func(p 
 	if err != nil {
 		return err
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	for _, name := range matching {
 		if _, err := stmt.ExecContext(ctx,
@@ -315,6 +323,7 @@ func (s *SQLiteStore) UpdateProjectStatusBatched(ctx context.Context, fn func(p 
 	return tx.Commit()
 }
 
+// GetProjectsByStatus returns projects matching a given status.
 func (s *SQLiteStore) GetProjectsByStatus(ctx context.Context, job RenovateJobIdentifier, status api.RenovateProjectStatus) ([]RenovateProjectStatus, error) {
 	rows, err := s.readDB.QueryContext(ctx, `SELECT full_name, status, priority, last_run, duration,
 		renovate_result_status, pr_activity, log_issues
@@ -322,11 +331,12 @@ func (s *SQLiteStore) GetProjectsByStatus(ctx context.Context, job RenovateJobId
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	return scanProjectStatuses(rows)
 }
 
+// ReconcileProjects adds new projects and removes stale ones, returning removed names.
 func (s *SQLiteStore) ReconcileProjects(ctx context.Context, job *api.RenovateJob, projects []string) ([]string, error) {
 	// Get existing project names.
 	rows, err := s.readDB.QueryContext(ctx, `SELECT full_name FROM projects WHERE job_name = ?`, job.Name)
@@ -337,12 +347,12 @@ func (s *SQLiteStore) ReconcileProjects(ctx context.Context, job *api.RenovateJo
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return nil, err
 		}
 		existingSet[name] = struct{}{}
 	}
-	rows.Close()
+	_ = rows.Close()
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -392,7 +402,7 @@ func (s *SQLiteStore) ReconcileProjects(ctx context.Context, job *api.RenovateJo
 		if err != nil {
 			return nil, err
 		}
-		defer stmt.Close()
+		defer func() { _ = stmt.Close() }()
 		for _, name := range toInsert {
 			if _, err := stmt.ExecContext(ctx, job.Name, name, string(api.JobStatusScheduled), now); err != nil {
 				return nil, err
@@ -407,16 +417,19 @@ func (s *SQLiteStore) ReconcileProjects(ctx context.Context, job *api.RenovateJo
 	return removed, nil
 }
 
-func (s *SQLiteStore) SyncWebhooks(ctx context.Context, job RenovateJobIdentifier, removedProjects []string) error {
+// SyncWebhooks synchronizes webhooks for removed projects (not yet implemented).
+func (s *SQLiteStore) SyncWebhooks(_ context.Context, job RenovateJobIdentifier, removedProjects []string) error {
 	s.logger.Info("SyncWebhooks called (not implemented in state store)", "job", job.Name, "removed", len(removedProjects))
 	return nil
 }
 
-func (s *SQLiteStore) CleanupWebhooks(ctx context.Context, job RenovateJobIdentifier) error {
+// CleanupWebhooks removes all webhooks for a job (not yet implemented).
+func (s *SQLiteStore) CleanupWebhooks(_ context.Context, job RenovateJobIdentifier) error {
 	s.logger.Info("CleanupWebhooks called (not implemented in state store)", "job", job.Name)
 	return nil
 }
 
+// StreamLogsForProject returns a reader for project logs.
 func (s *SQLiteStore) StreamLogsForProject(ctx context.Context, job RenovateJobIdentifier, project string) (io.ReadCloser, error) {
 	var logData []byte
 	err := s.readDB.QueryRowContext(ctx,
@@ -424,7 +437,7 @@ func (s *SQLiteStore) StreamLogsForProject(ctx context.Context, job RenovateJobI
 		job.Name, project,
 	).Scan(&logData)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
 		return nil, err
@@ -432,6 +445,7 @@ func (s *SQLiteStore) StreamLogsForProject(ctx context.Context, job RenovateJobI
 	return io.NopCloser(bytes.NewReader(logData)), nil
 }
 
+// IsWebhookTokenValid checks if the given token matches any stored webhook token.
 func (s *SQLiteStore) IsWebhookTokenValid(_ context.Context, _ RenovateJobIdentifier, token string) (bool, error) {
 	for _, t := range s.webhookTokens {
 		if subtle.ConstantTimeCompare([]byte(t), []byte(token)) == 1 {
@@ -441,6 +455,7 @@ func (s *SQLiteStore) IsWebhookTokenValid(_ context.Context, _ RenovateJobIdenti
 	return false, nil
 }
 
+// IsWebhookSignatureValid validates an HMAC-SHA256 webhook signature.
 func (s *SQLiteStore) IsWebhookSignatureValid(_ context.Context, _ RenovateJobIdentifier, signature string, body []byte) (bool, error) {
 	for _, token := range s.webhookTokens {
 		expected := computeHMAC256(body, token)
@@ -451,6 +466,7 @@ func (s *SQLiteStore) IsWebhookSignatureValid(_ context.Context, _ RenovateJobId
 	return false, nil
 }
 
+// IsWebhookStandardSignatureValid validates a Standard Webhooks signature.
 func (s *SQLiteStore) IsWebhookStandardSignatureValid(_ context.Context, _ RenovateJobIdentifier, msgID, timestamp, signature string, body []byte) (bool, error) {
 	if msgID == "" || signature == "" {
 		return false, nil
@@ -475,6 +491,7 @@ func (s *SQLiteStore) IsWebhookStandardSignatureValid(_ context.Context, _ Renov
 	return false, nil
 }
 
+// UpdateExecutionOptions updates execution options (e.g., debug mode) for a job.
 func (s *SQLiteStore) UpdateExecutionOptions(ctx context.Context, job RenovateJobIdentifier, options *api.RenovateExecutionOptions) error {
 	debugMode := 0
 	if options != nil && options.Debug {
@@ -484,6 +501,7 @@ func (s *SQLiteStore) UpdateExecutionOptions(ctx context.Context, job RenovateJo
 	return err
 }
 
+// CancelProjectJob cancels a running project job.
 func (s *SQLiteStore) CancelProjectJob(ctx context.Context, project string, job RenovateJobIdentifier) error {
 	// Get the container ID before updating status.
 	var containerID sql.NullString
@@ -513,11 +531,6 @@ func (s *SQLiteStore) CancelProjectJob(ctx context.Context, project string, job 
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
-
-// scannable is an interface satisfied by both *sql.Row and *sql.Rows.
-type scannable interface {
-	Scan(dest ...any) error
-}
 
 func scanRenovateJob(rows *sql.Rows) (*api.RenovateJob, error) {
 	var (
@@ -650,7 +663,7 @@ func (s *SQLiteStore) loadProjects(ctx context.Context, jobName string) ([]api.P
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var projects []api.ProjectStatus
 	for rows.Next() {
@@ -709,7 +722,7 @@ func (s *SQLiteStore) loadRenovateProjectStatuses(ctx context.Context, jobName s
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	return scanProjectStatuses(rows)
 }

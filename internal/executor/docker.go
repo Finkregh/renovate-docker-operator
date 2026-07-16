@@ -649,7 +649,7 @@ func (e *DockerExecutor) pullImage(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("pull image %s: %w", e.image, err)
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 	// Drain the reader to complete the pull
 	_, _ = io.Copy(io.Discard, reader)
 	return nil
@@ -657,7 +657,7 @@ func (e *DockerExecutor) pullImage(ctx context.Context) error {
 
 // buildEnvVars constructs environment variables for the Renovate container.
 // User-provided ExtraEnv values override predefined defaults.
-func (e *DockerExecutor) buildEnvVars(job *api.RenovateJob, project string, isDiscovery bool) []string {
+func (e *DockerExecutor) buildEnvVars(job *api.RenovateJob, _ string, isDiscovery bool) []string {
 	envMap := make(map[string]string)
 
 	// Predefined defaults
@@ -724,7 +724,7 @@ func (e *DockerExecutor) getContainerLogs(ctx context.Context, containerID strin
 	if err != nil {
 		return nil, err
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, reader); err != nil {

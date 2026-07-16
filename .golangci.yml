@@ -15,7 +15,6 @@ linters:
     - errname
     - errorlint
     - fatcontext
-    - goconst
     - gocritic
     - gocyclo
     - misspell

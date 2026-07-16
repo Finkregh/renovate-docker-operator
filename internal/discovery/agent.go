@@ -12,19 +12,19 @@ import (
 	"github.com/oluf-tech/renovate-docker-operator/internal/statestore"
 )
 
-// DiscoveryAgent manages project discovery for RenovateJobs.
-type DiscoveryAgent struct {
+// Agent manages project discovery for RenovateJobs.
+type Agent struct {
 	executor *executor.DockerExecutor
 	store    statestore.RenovateJobManager
 	logger   *slog.Logger
 }
 
-// New creates a new DiscoveryAgent.
-func New(exec *executor.DockerExecutor, store statestore.RenovateJobManager, logger *slog.Logger) *DiscoveryAgent {
+// New creates a new discovery Agent.
+func New(exec *executor.DockerExecutor, store statestore.RenovateJobManager, logger *slog.Logger) *Agent {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &DiscoveryAgent{
+	return &Agent{
 		executor: exec,
 		store:    store,
 		logger:   logger,
@@ -33,7 +33,7 @@ func New(exec *executor.DockerExecutor, store statestore.RenovateJobManager, log
 
 // RunDiscovery runs autodiscovery for the given job and reconciles projects.
 // Returns the list of removed projects (for webhook cleanup).
-func (d *DiscoveryAgent) RunDiscovery(ctx context.Context, job *api.RenovateJob) (removed []string, err error) {
+func (d *Agent) RunDiscovery(ctx context.Context, job *api.RenovateJob) (removed []string, err error) {
 	d.logger.Info("starting discovery", "job", job.Name)
 
 	// 1. Run discovery container to get repo list

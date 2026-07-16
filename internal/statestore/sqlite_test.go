@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -40,7 +41,7 @@ func TestNew_CreatesDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() failed: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	// DB file should exist.
 	if _, err := os.Stat(dbPath); err != nil {
@@ -70,14 +71,14 @@ func TestMigrations_Idempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first New() failed: %v", err)
 	}
-	store1.Close()
+	_ = store1.Close()
 
 	// Open again — migrations should be idempotent.
 	store2, err := New(dbPath, slog.Default())
 	if err != nil {
 		t.Fatalf("second New() failed: %v", err)
 	}
-	defer store2.Close()
+	defer func() { _ = store2.Close() }()
 
 	// Still one job (not double-seeded).
 	ctx := context.Background()
@@ -174,7 +175,7 @@ func TestUpdateProjectStatus(t *testing.T) {
 	err = store.UpdateProjectStatus(ctx, "org/nonexistent", RenovateJobIdentifier{Name: "default"}, &RenovateStatusUpdate{
 		Status: api.JobStatusFailed,
 	})
-	if err != ErrProjectNotFound {
+	if !errors.Is(err, ErrProjectNotFound) {
 		t.Fatalf("expected ErrProjectNotFound, got %v", err)
 	}
 }
@@ -236,7 +237,7 @@ func TestStandardWebhookSignature(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() failed: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	ctx := context.Background()
 	jobID := RenovateJobIdentifier{Name: "default"}
