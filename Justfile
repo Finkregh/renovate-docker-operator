@@ -8,114 +8,71 @@ default:
 
 # Run the application with flags similar to the production build
 run *args: build jsInstall
-    cd src && ../dist/native/renovate-operator {{args}}
+    ./dist/native/renovate-operator {{args}}
 
 # Build a native binary with flags similar to the production build
-build: generate
+build:
     #!/usr/bin/env sh
     VERSION=$(git describe --tags $(git rev-list --tags --max-count=1) 2>/dev/null || echo "dev")
-    cd src && go build -tags timetzdata -trimpath -gcflags="all=-l" -ldflags="-s -w -X main.Version=${VERSION}" -o ../dist/native/renovate-operator ./cmd/main.go
+    go build -tags timetzdata -trimpath -gcflags="all=-l" -ldflags="-s -w -X main.Version=${VERSION}" -o dist/native/renovate-operator ./cmd/main.go
 
 # Build binaries for all targets
 build-all: build-linux-amd64 build-linux-arm64 build-linux-armv7
 
 # Build binary for target linux-amd64
-build-linux-amd64: generate
-    cd src && GOOS=linux GOARCH=amd64 go build -tags timetzdata -trimpath -gcflags="all=-l" -ldflags="-s -w" -o ../dist/amd64/renovate-operator ./cmd/main.go
-
-# Build docker image for target linux-amd64
-build-docker-linux-amd64:
+build-linux-amd64:
     #!/usr/bin/env sh
-    VERSION=$(git describe --tags $(git rev-list --tags --max-count=1))
-    set -x
-    docker buildx build --platform=linux/amd64 -f Dockerfile \
-        --build-arg GOOS=linux \
-        --build-arg GOARCH=amd64 \
-        -t ghcr.io/mogenius/renovate-operator-dev:$VERSION-amd64 \
-        -t ghcr.io/mogenius/renovate-operator-dev:latest-amd64 \
-        .
+    VERSION=$(git describe --tags $(git rev-list --tags --max-count=1) 2>/dev/null || echo "dev")
+    GOOS=linux GOARCH=amd64 go build -tags timetzdata -trimpath -gcflags="all=-l" -ldflags="-s -w -X main.Version=${VERSION}" -o dist/amd64/renovate-operator ./cmd/main.go
 
 # Build binary for target linux-arm64
-build-linux-arm64: generate
-    cd src && GOOS=linux GOARCH=arm64 go build -tags timetzdata -trimpath -gcflags="all=-l" -ldflags="-s -w" -o ../dist/arm64/renovate-operator ./cmd/main.go
-
-# Build docker image for target linux-arm64
-build-docker-linux-arm64:
+build-linux-arm64:
     #!/usr/bin/env sh
-    VERSION=$(git describe --tags $(git rev-list --tags --max-count=1))
-    set -x
-    docker buildx build --platform=linux/arm64 -f Dockerfile \
-        --build-arg GOOS=linux \
-        --build-arg GOARCH=arm64 \
-        -t ghcr.io/mogenius/renovate-operator-dev:$VERSION-arm64 \
-        -t ghcr.io/mogenius/renovate-operator-dev:latest-arm64 \
-        .
+    VERSION=$(git describe --tags $(git rev-list --tags --max-count=1) 2>/dev/null || echo "dev")
+    GOOS=linux GOARCH=arm64 go build -tags timetzdata -trimpath -gcflags="all=-l" -ldflags="-s -w -X main.Version=${VERSION}" -o dist/arm64/renovate-operator ./cmd/main.go
 
 # Build binary for target linux-armv7
-build-linux-armv7: generate
-    cd src && GOOS=linux GOARCH=arm GOARM=7 go build -tags timetzdata -trimpath -gcflags="all=-l" -ldflags="-s -w" -o ../dist/armv7/renovate-operator ./cmd/main.go
-
-# Build docker image for target linux-armv7
-build-docker-linux-armv7:
+build-linux-armv7:
     #!/usr/bin/env sh
-    VERSION=$(git describe --tags $(git rev-list --tags --max-count=1))
-    set -x
-    docker buildx build --platform=linux/arm/v7 -f Dockerfile \
-        --build-arg GOOS=linux \
-        --build-arg GOARCH=arm \
-        --build-arg GOARM=7 \
-        -t ghcr.io/mogenius/renovate-operator-dev:$VERSION-armv7 \
-        -t ghcr.io/mogenius/renovate-operator-dev:latest-armv7 \
-        .
-
-# Install tools used by go generate
-_install_controller_gen:
-    go install sigs.k8s.io/controller-tools/cmd/controller-gen@latest
-
-# Execute go generate
-generate: _install_controller_gen
-    controller-gen crd paths=./src/... output:crd:dir=charts/renovate-operator/crd
+    VERSION=$(git describe --tags $(git rev-list --tags --max-count=1) 2>/dev/null || echo "dev")
+    GOOS=linux GOARCH=arm GOARM=7 go build -tags timetzdata -trimpath -gcflags="all=-l" -ldflags="-s -w -X main.Version=${VERSION}" -o dist/armv7/renovate-operator ./cmd/main.go
 
 # Run tests and linters for quick iteration locally.
-check: generate golangci-lint test-unit test-helm
+check: golangci-lint test-unit
 
 # Execute unit tests
-test-unit: generate
-    cd src && go run gotest.tools/gotestsum@latest --format="testname" --hide-summary="skipped" --format-hide-empty-pkg --rerun-fails="0" -- -count=1 ./...
+test-unit:
+    go run gotest.tools/gotestsum@latest --format="testname" --hide-summary="skipped" --format-hide-empty-pkg --rerun-fails="0" -- -count=1 ./...
 
-# Execute helm unit tests
-test-helm:
-    helm unittest ./charts/renovate-operator/ --file "unittests/**/*.yaml"
-
-# Execute the over-the-wire webhook signing-token integration test (see src/integration/README.md)
+# Execute the over-the-wire webhook signing-token integration test (see integration/README.md)
 test-integration:
-    cd src && go test -tags integration -count=1 -v ./integration/...
+    go test -tags integration -count=1 -v ./integration/...
 
 # Execute golangci-lint
-golangci-lint: generate
-    cd src && go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run --config=.golangci.yml '--timeout=1h' ./...
-
+golangci-lint:
+    go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run --config=.golangci.yml '--timeout=1h' ./...
 
 # Install JS dependencies
 jsInstall:
     #!/usr/bin/env sh
     set -e
-    mkdir -p src/static/js
+    mkdir -p static/js
     echo "Downloading Tailwind CSS..."
-    curl -s -L -o src/static/js/tailwind.min.js "https://cdn.tailwindcss.com"
+    curl -s -L -o static/js/tailwind.min.js "https://cdn.tailwindcss.com"
     echo "Downloading Babel Standalone..."
-    curl -s -L -o src/static/js/babel.min.js "https://unpkg.com/@babel/standalone@8.0.1/babel.min.js"
+    curl -s -L -o static/js/babel.min.js "https://unpkg.com/@babel/standalone@8.0.1/babel.min.js"
     echo "Bundling React 19..."
     BUNDLE_DIR=$(mktemp -d)
     npm install --prefix "$BUNDLE_DIR" "react@19.2.7" "react-dom@19.2.7" esbuild --save=false --silent
     echo "import React from 'react'; import { createRoot } from 'react-dom/client'; export { React, createRoot };" > "$BUNDLE_DIR/entry.mjs"
     "$BUNDLE_DIR/node_modules/.bin/esbuild" "$BUNDLE_DIR/entry.mjs" \
         --bundle --format=esm --log-level=silent \
-        --outfile=src/static/js/react-bundle.esm.js
+        --outfile=static/js/react-bundle.esm.js
     rm -rf "$BUNDLE_DIR"
     echo "All JavaScript dependencies ready!"
 
-docker image:
+# Build and push container image
+docker-push image="git.h.oluflorenzen.de/finkregh/renovate-docker-operator":
     podman build --platform linux/arm64 \
         -t {{image}}-arm64 \
         -f ./Dockerfile .
