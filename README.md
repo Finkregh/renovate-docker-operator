@@ -129,7 +129,22 @@ Configure your Forgejo instance to send webhooks to:
 http://renovate-operator:8081/webhook/v1/forgejo?job=default
 ```
 
-Events to enable: **Issues** (edited) and **Pull Requests** (edited, closed, reopened).
+Events to enable: **Push**, **Issues** (edited), and **Pull Requests** (edited, closed, reopened).
+
+#### System Webhook Setup
+
+For Forgejo instances where you want all repositories covered automatically, use a **system webhook** (Site Administration → Webhooks → Add Webhook → Forgejo):
+
+1. **Target URL**: `http://renovate-operator:8081/webhook/v1/forgejo?job=default`
+2. **Content Type**: `application/json`
+3. **Secret**: Your shared HMAC secret (same value as `WEBHOOK_SECRET`). This provides HMAC-SHA256 signature authentication via `X-Forgejo-Signature`. The Authorization Header field is optional and redundant when a Secret is configured.
+4. **Branch Filter**: `main` (or `{main,master}` to match multiple default branches). This filter is applied server-side by Forgejo, so only pushes to matching branches are delivered.
+5. **Events**: Select "Custom Events", then enable:
+   - **Push** — triggers Renovate on code changes to the default branch
+   - **Pull Request** (Modification) — triggers on PR edits/close/reopen for Renovate checkbox interactions
+   - **Issues** (optional) — enables Dependency Dashboard checkbox interactions
+
+> **Note**: The branch filter is applied server-side by Forgejo before delivery. Tag pushes and branch deletions are also filtered out by the operator as defense-in-depth.
 
 ### Authentication (Optional)
 
@@ -207,19 +222,7 @@ Events to enable: **Issues** (edited) and **Pull Requests** (edited, closed, reo
 
 ## Development
 
-```bash
-# Build
-go build ./cmd/
-
-# Run tests
-go test ./...
-
-# Run locally (requires Docker and PLATFORM_ENDPOINT)
-export PLATFORM_ENDPOINT="https://git.example.com"
-export RENOVATE_TOKEN="your-token"
-export SQLITE_PATH="./test.db"
-./renovate-docker-operator
-```
+For development documentation — project structure, coding conventions, architectural decisions, and build/test instructions — see **[README-development.md](README-development.md)**.
 
 ---
 
