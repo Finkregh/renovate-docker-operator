@@ -402,6 +402,9 @@ func (m *mockStore) CleanupWebhooks(context.Context, statestore.RenovateJobIdent
 func (m *mockStore) StreamLogsForProject(context.Context, statestore.RenovateJobIdentifier, string) (io.ReadCloser, error) {
 	return nil, nil
 }
+func (m *mockStore) StoreProjectLogs(context.Context, statestore.RenovateJobIdentifier, string, []byte) error {
+	return nil
+}
 func (m *mockStore) IsWebhookStandardSignatureValid(context.Context, statestore.RenovateJobIdentifier, string, string, string, []byte) (bool, error) {
 	return false, nil
 }

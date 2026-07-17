@@ -39,6 +39,8 @@ type RenovateJobManager interface {
 	CleanupWebhooks(ctx context.Context, job RenovateJobIdentifier) error
 	// StreamLogsForProject returns an io.ReadCloser that streams NDJSON log lines for the given project.
 	StreamLogsForProject(ctx context.Context, job RenovateJobIdentifier, project string) (io.ReadCloser, error)
+	// StoreProjectLogs stores the raw log data for a project run.
+	StoreProjectLogs(ctx context.Context, job RenovateJobIdentifier, project string, logData []byte) error
 	// IsWebhookTokenValid checks if the provided token is valid for the webhook of the specified RenovateJob.
 	IsWebhookTokenValid(ctx context.Context, job RenovateJobIdentifier, token string) (bool, error)
 	// IsWebhookSignatureValid checks if the provided signature is valid for the webhook of the specified RenovateJob.

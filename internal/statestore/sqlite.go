@@ -16,6 +16,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -427,6 +428,15 @@ func (s *SQLiteStore) SyncWebhooks(_ context.Context, job RenovateJobIdentifier,
 func (s *SQLiteStore) CleanupWebhooks(_ context.Context, job RenovateJobIdentifier) error {
 	s.logger.Info("CleanupWebhooks called (not implemented in state store)", "job", job.Name)
 	return nil
+}
+
+// StoreProjectLogs stores the raw log data for a project run.
+func (s *SQLiteStore) StoreProjectLogs(ctx context.Context, job RenovateJobIdentifier, project string, logData []byte) error {
+	_, err := s.writeDB.ExecContext(ctx,
+		`INSERT OR REPLACE INTO job_logs (job_name, project_name, log_data, updated_at) VALUES (?, ?, ?, datetime('now'))`,
+		job.Name, project, logData,
+	)
+	return err
 }
 
 // StreamLogsForProject returns a reader for project logs.
@@ -884,6 +894,11 @@ func commaSepToJSON(s string) string {
 
 func nullableJSON(v any) (sql.NullString, error) {
 	if v == nil {
+		return sql.NullString{}, nil
+	}
+	// Handle typed-nil pointers (e.g., (*api.PRActivity)(nil) passed as any)
+	rv := reflect.ValueOf(v)
+	if rv.Kind() == reflect.Pointer && rv.IsNil() {
 		return sql.NullString{}, nil
 	}
 	data, err := json.Marshal(v)
