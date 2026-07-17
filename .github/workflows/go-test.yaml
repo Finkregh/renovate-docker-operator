@@ -6,7 +6,7 @@ on:
       - main
 
 jobs:
-  build:
+  check:
     runs-on: ubuntu-latest
     container:
       image: node:24-bookworm
@@ -19,52 +19,18 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Install just
+        uses: https://codeberg.org/FelixSchwarz/setup-just@v4.0.0-codeberg
 
       - name: Download dependencies
         run: go mod download
-
-      - name: Build
-        run: go build -tags timetzdata ./...
-
-  test:
-    needs: [build]
-    runs-on: ubuntu-latest
-    container:
-      image: node:24-bookworm
-
-    steps:
-      - uses: https://code.forgejo.org/actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v6.0.2
-
-      - name: Setup Go
-        uses: https://github.com/actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Download dependencies
-        run: go mod download
-
-      - name: Test
-        run: go test ./... -v
-
-  lint:
-    needs: [build]
-    runs-on: ubuntu-latest
-    container:
-      image: node:24-bookworm
-
-    steps:
-      - uses: https://code.forgejo.org/actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v6.0.2
-
-      - name: Setup Go
-        uses: https://github.com/actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Install golangci-lint
-        run: |
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b /usr/local/bin
 
       - name: Lint
-        run: golangci-lint run --timeout=10m --config=.golangci.yml
+        run: just golangci-lint
+
+      - name: Test
+        run: just test-unit
+
+      - name: Build (linux/amd64)
+        run: just build-linux-amd64

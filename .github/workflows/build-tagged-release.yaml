@@ -7,8 +7,8 @@ on:
       - 'v[0-9]+\.[0-9]+\.[0-9]+'
 
 jobs:
-  build-binary:
-    name: Build Go binary
+  build-and-release:
+    name: Build binaries & attach to release
     runs-on: ubuntu-latest
     container:
       image: node:24-bookworm
@@ -27,21 +27,76 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Install just
+        uses: https://github.com/extractions/setup-just@e33e0265a09d0d9e33f4d1a10e96956f55c0283e # v4.0.0
+
       - name: Download dependencies
         run: go mod download
 
-      - name: Build
-        run: |
-          VERSION="${{ github.ref_name }}"
-          CGO_ENABLED=0 go build -tags timetzdata \
-            -ldflags "-s -w -X main.version=${VERSION}" \
-            -o renovate-operator ./cmd/
+      - name: Build all binaries
+        run: just build-all
 
-      - name: Upload binary artifact
-        uses: https://code.forgejo.org/actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: renovate-operator-linux-amd64
-          path: renovate-operator
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum amd64/renovate-operator arm64/renovate-operator armv7/renovate-operator \
+            | sed 's|amd64/renovate-operator|renovate-operator-linux-amd64|;s|arm64/renovate-operator|renovate-operator-linux-arm64|;s|armv7/renovate-operator|renovate-operator-linux-armv7|' \
+            > checksums.txt
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Find release by tag
+        id: release
+        env:
+          TOKEN: ${{ secrets.PACKAGE_UPLOAD_TOKEN }}
+          SERVER: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
+          RELEASE_ID=$(curl -s --fail \
+            -H "Authorization: token ${TOKEN}" \
+            "${SERVER}/api/v1/repos/${REPO}/releases/tags/${VERSION}" \
+            | jq -r '.id')
+          echo "RELEASE_ID=${RELEASE_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Attach binaries to release
+        env:
+          TOKEN: ${{ secrets.PACKAGE_UPLOAD_TOKEN }}
+          SERVER: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+          RELEASE_ID: ${{ steps.release.outputs.RELEASE_ID }}
+        run: |
+          for arch in amd64 arm64 armv7; do
+            curl -s --fail -X POST \
+              -H "Authorization: token ${TOKEN}" \
+              -F "attachment=@dist/${arch}/renovate-operator" \
+              "${SERVER}/api/v1/repos/${REPO}/releases/${RELEASE_ID}/assets?name=renovate-operator-linux-${arch}"
+          done
+          curl -s --fail -X POST \
+            -H "Authorization: token ${TOKEN}" \
+            -F "attachment=@dist/checksums.txt" \
+            "${SERVER}/api/v1/repos/${REPO}/releases/${RELEASE_ID}/assets?name=checksums.txt"
+
+      - name: Upload to Generic Package Registry
+        env:
+          TOKEN: ${{ secrets.PACKAGE_UPLOAD_TOKEN }}
+          SERVER: ${{ github.server_url }}
+          OWNER: ${{ github.repository_owner }}
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
+          BASE_URL="${SERVER}/api/packages/${OWNER}/generic/renovate-docker-operator/${VERSION}"
+          for arch in amd64 arm64 armv7; do
+            curl -s --fail -X PUT \
+              -H "Authorization: token ${TOKEN}" \
+              --upload-file "dist/${arch}/renovate-operator" \
+              "${BASE_URL}/renovate-operator-linux-${arch}"
+          done
+          curl -s --fail -X PUT \
+            -H "Authorization: token ${TOKEN}" \
+            --upload-file "dist/checksums.txt" \
+            "${BASE_URL}/checksums.txt"
 
   build-container:
     name: Build & push container image
