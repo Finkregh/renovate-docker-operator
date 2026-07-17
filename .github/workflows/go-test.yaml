@@ -12,7 +12,7 @@ jobs:
       image: node:24-bookworm
 
     steps:
-      - uses: https://code.forgejo.org/actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v6.0.2
+      - uses: https://code.forgejo.org/actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Setup Go
         uses: https://github.com/actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
