@@ -2,6 +2,13 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [0.1.1](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/compare/f6bd01732b7300facaafc7cd7af166e4dd74e24e..0.1.1) - 2026-07-17
+#### Continuous Integration
+- bump on ci changes - ([18f3bf1](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/18f3bf1053f6d500aaad518bcf71af9b2f49a3ff)) - finkregh
+- fix tag match - ([f6bd017](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/f6bd01732b7300facaafc7cd7af166e4dd74e24e)) - finkregh
+
+- - -
+
 ## [0.1.0](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/compare/4e3e5fe053cf581cdb06a904515d1d15d15b3a0c..0.1.0) - 2026-07-17
 #### Features
 - (**actions**) migrate from semantic release to release-please - ([c0ca31a](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/c0ca31a4a187444facfc2a250d4f49d564f422ac)) - Lukas Hankeln
