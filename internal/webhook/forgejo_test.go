@@ -11,8 +11,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/oluf-tech/renovate-docker-operator/internal/api"
-	"github.com/oluf-tech/renovate-docker-operator/internal/statestore"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/api"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/statestore"
 )
 
 func TestIsValidForgejoEvent_Issues(t *testing.T) {
@@ -517,4 +517,3 @@ func TestAuthenticate(t *testing.T) {
 		})
 	}
 }
-

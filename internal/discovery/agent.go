@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/oluf-tech/renovate-docker-operator/internal/api"
-	"github.com/oluf-tech/renovate-docker-operator/internal/executor"
-	"github.com/oluf-tech/renovate-docker-operator/internal/statestore"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/api"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/executor"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/statestore"
 )
 
 // Agent manages project discovery for RenovateJobs.

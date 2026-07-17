@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oluf-tech/renovate-docker-operator/internal/api"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/api"
 )
 
 // standardWebhookTimestampTolerance bounds how far a webhook-timestamp may drift
@@ -668,13 +668,13 @@ func (s *SQLiteStore) loadProjects(ctx context.Context, jobName string) ([]api.P
 	var projects []api.ProjectStatus
 	for rows.Next() {
 		var (
-			name, status          string
-			priority              int32
-			lastRunStr            sql.NullString
-			duration              sql.NullString
-			renovateResultStatus  sql.NullString
-			prActivityJSON        sql.NullString
-			logIssuesJSON         sql.NullString
+			name, status         string
+			priority             int32
+			lastRunStr           sql.NullString
+			duration             sql.NullString
+			renovateResultStatus sql.NullString
+			prActivityJSON       sql.NullString
+			logIssuesJSON        sql.NullString
 		)
 		if err := rows.Scan(&name, &status, &priority, &lastRunStr, &duration,
 			&renovateResultStatus, &prActivityJSON, &logIssuesJSON); err != nil {

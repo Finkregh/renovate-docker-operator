@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oluf-tech/renovate-docker-operator/internal/api"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/api"
 )
 
 func newTestStore(t *testing.T) *SQLiteStore {

@@ -11,12 +11,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/oluf-tech/renovate-docker-operator/config"
-	"github.com/oluf-tech/renovate-docker-operator/internal/discovery"
-	"github.com/oluf-tech/renovate-docker-operator/internal/executor"
-	"github.com/oluf-tech/renovate-docker-operator/internal/scheduler"
-	"github.com/oluf-tech/renovate-docker-operator/internal/server"
-	"github.com/oluf-tech/renovate-docker-operator/internal/statestore"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/config"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/discovery"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/executor"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/scheduler"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/server"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/statestore"
 )
 
 func main() {
