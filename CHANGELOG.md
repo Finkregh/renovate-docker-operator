@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.2.2](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/compare/77ed2eba4cb909c74051a4b54ceb66a6be52f21b..v0.2.2) - 2026-07-17
+#### Bug Fixes
+- use stdcopy to demultiplex Docker container log streams - ([77ed2eb](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/77ed2eba4cb909c74051a4b54ceb66a6be52f21b)) - Oluf Lorenzen
+
+- - -
+
 ## [v0.2.1](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/compare/9f40ef112d8d962a14af36bcfbe214b588f49dea..v0.2.1) - 2026-07-17
 #### Continuous Integration
 - fix just action - ([9f40ef1](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/9f40ef112d8d962a14af36bcfbe214b588f49dea)) - finkregh
