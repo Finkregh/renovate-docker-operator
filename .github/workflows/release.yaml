@@ -79,7 +79,7 @@ jobs:
           apt-get install -y docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
       - name: Setup Docker Buildx
-        uses: https://github.com/docker/setup-buildx-action@f211e3e9ded2d9377c8cadc4489a4e38014bc4c9 # v1
+        uses: https://github.com/docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
 
       - name: Login to Container Registry
         uses: https://github.com/docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
