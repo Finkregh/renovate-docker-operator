@@ -29,7 +29,7 @@ RUN mkdir -p /bundle && \
         --outfile=static/js/react-bundle.esm.js
 
 # Runtime stage
-FROM alpine:3.21
+FROM alpine:3.24
 
 RUN apk --no-cache add ca-certificates tzdata \
     && addgroup -g 12021 -S operator \
