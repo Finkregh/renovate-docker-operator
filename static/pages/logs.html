@@ -1,0 +1,603 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Logs - Renovate Docker Operator</title>
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="16x16"
+      href="assets/favicon-small.png"
+    />
+    <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon.png" />
+
+    <script src="js/tailwind.min.js"></script>
+    <script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              primary: "#009bc5",
+              "primary-hover": "#00556c",
+              success: "#00c567",
+              error: "#c22828",
+              warning: "#ff8c1a",
+            },
+          },
+        },
+      };
+    </script>
+    <script src="js/theme-utils.js"></script>
+    <script src="js/babel.min.js"></script>
+    <script src="js/babel-config.js"></script>
+    <script type="module">
+      import { React, createRoot } from "./js/react-bundle.esm.js";
+      window.React = React;
+      window.createRoot = createRoot;
+    </script>
+    <script type="text/babel" src="components/ThemeToggle.js"></script>
+    <script type="text/babel" src="components/SiteHeader.js"></script>
+    <script type="text/babel" src="components/StatBadge.js"></script>
+    <script type="text/babel" src="components/Footer.js"></script>
+
+    <link rel="stylesheet" href="css/styles.css" />
+  </head>
+
+  <body
+    class="bg-gray-50 dark:bg-slate-900 text-gray-900 dark:text-slate-100 transition-colors duration-200"
+  >
+    <div id="root"></div>
+
+    <script type="text/babel">
+      const { useState, useEffect, useCallback, useRef, useMemo } = React;
+
+      function levelInfo(level) {
+        if (level >= 60) return { label: "FATAL", color: "error" };
+        if (level >= 50) return { label: "ERROR", color: "error" };
+        if (level >= 40) return { label: "WARN", color: "warn" };
+        if (level >= 30) return { label: "INFO", color: "info" };
+        if (level >= 20) return { label: "DEBUG", color: "debug" };
+        return { label: String(level), color: "debug" };
+      }
+
+      function highlight(text, query) {
+        if (!query || !text) return text;
+        const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const parts = String(text).split(new RegExp(`(${escaped})`, "gi"));
+        if (parts.length === 1) return text;
+        return parts.map((part, i) =>
+          part.toLowerCase() === query.toLowerCase() ? (
+            <mark
+              key={i}
+              className="bg-yellow-200 dark:bg-yellow-600/50 text-inherit rounded-sm"
+            >
+              {part}
+            </mark>
+          ) : (
+            part
+          ),
+        );
+      }
+
+      function LogRow({ entry, searchQuery }) {
+        const level = entry.level;
+        const { label, color } = levelInfo(level);
+        const q = searchQuery ? searchQuery.trim() : "";
+
+        const msgMatch = q
+          ? String(entry.msg || "")
+              .toLowerCase()
+              .includes(q.toLowerCase())
+          : false;
+        const autoExpand = q !== "" && !msgMatch;
+
+        const [manuallySet, setManuallySet] = useState(false);
+        const [manualExpanded, setManualExpanded] = useState(false);
+
+        useEffect(() => {
+          setManuallySet(false);
+        }, [q]);
+
+        const expanded = manuallySet ? manualExpanded : autoExpand;
+
+        const handleClick = () => {
+          if (window.getSelection && window.getSelection().toString()) return;
+          setManuallySet(true);
+          setManualExpanded(!expanded);
+        };
+
+        const rowClass =
+          color === "error"
+            ? "bg-red-50 dark:bg-red-950/40 border-l-4 border-red-500"
+            : color === "warn"
+              ? "bg-yellow-50 dark:bg-yellow-950/40 border-l-4 border-yellow-500"
+              : color === "info"
+                ? "border-l-4 border-success"
+                : "border-l-4 border-transparent";
+
+        const labelClass =
+          color === "error"
+            ? "text-red-700 dark:text-red-400"
+            : color === "warn"
+              ? "text-yellow-700 dark:text-yellow-400"
+              : color === "info"
+                ? "text-success"
+                : "text-gray-400 dark:text-slate-500";
+
+        const time = entry.time
+          ? new Date(entry.time).toLocaleTimeString(undefined, {
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+              fractionalSecondDigits: 3,
+            })
+          : "";
+
+        return (
+          <div
+            className={`${rowClass} px-3 py-1.5 font-mono text-xs leading-relaxed cursor-pointer hover:brightness-95 dark:hover:brightness-110 transition-all`}
+            onClick={handleClick}
+          >
+            <div className="flex items-baseline gap-2 min-w-0">
+              <span className="text-gray-400 dark:text-slate-500 shrink-0 tabular-nums">
+                {time}
+              </span>
+              <span className={`font-bold shrink-0 w-11 ${labelClass}`}>
+                {label}
+              </span>
+              <span className="text-gray-800 dark:text-slate-200 break-all">
+                {highlight(entry.msg, q)}
+              </span>
+              <span className="ml-auto shrink-0 text-gray-400 dark:text-slate-600 select-none">
+                {expanded ? "▲" : "▼"}
+              </span>
+            </div>
+            {expanded && (
+              <pre className="mt-1 ml-[4.25rem] text-gray-600 dark:text-slate-400 whitespace-pre-wrap break-all text-[0.7rem] leading-relaxed">
+                {highlight(JSON.stringify(entry, null, 2), q)}
+              </pre>
+            )}
+          </div>
+        );
+      }
+
+      function App() {
+        const params = new URLSearchParams(window.location.search);
+        const namespace = params.get("namespace") || "";
+        const renovate = params.get("renovate") || "";
+        const project = params.get("project") || "";
+
+        const [logs, setLogs] = useState(null);
+        const [loading, setLoading] = useState(true);
+        const [streamFinished, setStreamFinished] = useState(false);
+        const [error, setError] = useState(null);
+        const [version, setVersion] = useState(null);
+        const [authInfo, setAuthInfo] = useState({ enabled: false });
+        const [copied, setCopied] = useState(false);
+        const [searchQuery, setSearchQuery] = useState("");
+
+        const BASE = window.__BASE_PATH__ || "";
+        const withBase = (url) => (url.startsWith("/") ? BASE + url : url);
+
+        const authFetch = async (url, options = {}) => {
+          return fetch(withBase(url), options);
+        };
+
+        useEffect(() => {
+          fetch(BASE + "/api/v1/version")
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => d && setVersion(d.version))
+            .catch(() => {});
+        }, []);
+
+        useEffect(() => {
+          if (!renovate || !namespace || !project) {
+            setError(
+              "Missing required query parameters: namespace, renovate, project.",
+            );
+            setLoading(false);
+            return;
+          }
+
+          const entries = [];
+          const url = `${BASE}/api/v1/logs?namespace=${encodeURIComponent(namespace)}&renovate=${encodeURIComponent(renovate)}&project=${encodeURIComponent(project)}`;
+          const es = new EventSource(url);
+
+          es.onmessage = (event) => {
+            try {
+              entries.push(JSON.parse(event.data));
+              setLogs([...entries]);
+              setLoading(false);
+            } catch {}
+          };
+
+          es.addEventListener("done", () => {
+            es.close();
+            if (entries.length === 0) setLogs([]);
+            setLoading(false);
+            setStreamFinished(true);
+          });
+
+          es.onerror = () => {
+            es.close();
+            if (entries.length === 0) {
+              setError(
+                "Failed to load logs. The job may have been cleaned up already.",
+              );
+            }
+            setLoading(false);
+            setStreamFinished(true);
+          };
+
+          return () => es.close();
+        }, [namespace, renovate, project]);
+
+        const errorCount = useMemo(
+          () => (logs ? logs.filter((e) => e.level >= 50).length : null),
+          [logs],
+        );
+        const warnCount = useMemo(
+          () =>
+            logs
+              ? logs.filter((e) => e.level >= 40 && e.level < 50).length
+              : null,
+          [logs],
+        );
+
+        const ALL_LEVELS = ["FATAL", "ERROR", "WARN", "INFO", "DEBUG"];
+        const LEVEL_MIN = {
+          FATAL: 60,
+          ERROR: 50,
+          WARN: 40,
+          INFO: 30,
+          DEBUG: 20,
+        };
+        const LEVEL_MAX = {
+          FATAL: Infinity,
+          ERROR: 59,
+          WARN: 49,
+          INFO: 39,
+          DEBUG: 29,
+        };
+        const LEVEL_COLOR = {
+          FATAL: "text-red-700 dark:text-red-400",
+          ERROR: "text-red-700 dark:text-red-400",
+          WARN: "text-yellow-700 dark:text-yellow-400",
+          INFO: "text-success",
+          DEBUG: "text-gray-400 dark:text-slate-500",
+        };
+
+        const initialLevels = useMemo(() => {
+          const raw = params.get("levels");
+          if (!raw) return new Set(ALL_LEVELS);
+          const requested = raw
+            .split(",")
+            .map((s) => s.trim().toUpperCase())
+            .filter((s) => ALL_LEVELS.includes(s));
+          return requested.length > 0
+            ? new Set(requested)
+            : new Set(ALL_LEVELS);
+        }, []);
+        const [selectedLevels, setSelectedLevels] = useState(initialLevels);
+        const [filterOpen, setFilterOpen] = useState(false);
+        const filterRef = useRef(null);
+
+        useEffect(() => {
+          if (!filterOpen) return;
+          const handler = (e) => {
+            if (filterRef.current && !filterRef.current.contains(e.target))
+              setFilterOpen(false);
+          };
+          document.addEventListener("mousedown", handler);
+          return () => document.removeEventListener("mousedown", handler);
+        }, [filterOpen]);
+
+        const toggleLevel = (lvl) => {
+          setSelectedLevels((prev) => {
+            const next = new Set(prev);
+            next.has(lvl) ? next.delete(lvl) : next.add(lvl);
+            return next;
+          });
+        };
+
+        const filteredLogs = useMemo(() => {
+          if (!logs) return null;
+          let result = logs;
+          if (selectedLevels.size < ALL_LEVELS.length) {
+            result = result.filter((e) => {
+              const lv = e.level ?? 0;
+              return ALL_LEVELS.some(
+                (name) =>
+                  selectedLevels.has(name) &&
+                  lv >= LEVEL_MIN[name] &&
+                  lv <= LEVEL_MAX[name],
+              );
+            });
+          }
+          if (searchQuery.trim()) {
+            const q = searchQuery.trim().toLowerCase();
+            result = result.filter((e) =>
+              JSON.stringify(e).toLowerCase().includes(q),
+            );
+          }
+          return result;
+        }, [logs, selectedLevels, searchQuery]);
+
+        const handleCopy = useCallback(() => {
+          if (!filteredLogs) return;
+          const text = filteredLogs.map((e) => JSON.stringify(e)).join("\n");
+          navigator.clipboard.writeText(text).then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+          });
+        }, [filteredLogs]);
+
+        return (
+          <div className="min-h-screen flex flex-col">
+            <SiteHeader version={version} authInfo={authInfo}>
+              <StatBadge
+                label="Errors"
+                value={errorCount === null ? "-" : errorCount}
+                valueClass="text-error"
+              />
+              <StatBadge
+                label="Warnings"
+                value={warnCount === null ? "-" : warnCount}
+                valueClass="text-warning"
+              />
+            </SiteHeader>
+
+            <main className="flex-1 max-w-7xl mx-auto w-full px-3 sm:px-6 lg:px-8 pb-8">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
+                <div className="shrink-0">
+                  <div className="flex items-center gap-2">
+                    <h1 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
+                      Logs
+                    </h1>
+                    {!loading && !streamFinished && (
+                      <span className="flex items-center gap-1.5 text-xs text-success font-medium">
+                        <span className="relative flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-success"></span>
+                        </span>
+                        Streaming
+                      </span>
+                    )}
+                    {streamFinished && (
+                      <span className="flex items-center gap-1.5 text-xs text-gray-400 dark:text-slate-500 font-medium">
+                        <svg
+                          className="w-3.5 h-3.5"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M5 13l4 4L19 7"
+                          />
+                        </svg>
+                        Completed
+                      </span>
+                    )}
+                  </div>
+                  {project && (
+                    <p className="text-sm text-gray-500 dark:text-slate-400 font-mono break-all">
+                      {project}
+                    </p>
+                  )}
+                </div>
+                {logs && logs.length > 0 && (
+                  <>
+                    <div className="flex-1 relative">
+                      <svg
+                        className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-slate-500 pointer-events-none"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M21 21l-4.35-4.35M17 11A6 6 0 105 11a6 6 0 0012 0z"
+                        />
+                      </svg>
+                      <input
+                        type="text"
+                        placeholder="Search logs…"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full pl-8 pr-8 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 placeholder-gray-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
+                      />
+                      {searchQuery && (
+                        <button
+                          onClick={() => setSearchQuery("")}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300 transition-colors"
+                        >
+                          <svg
+                            className="w-3.5 h-3.5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M6 18L18 6M6 6l12 12"
+                            />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {/* Level filter dropdown */}
+                      <div className="relative" ref={filterRef}>
+                        <button
+                          onClick={() => setFilterOpen((o) => !o)}
+                          className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-300 dark:border-slate-600 hover:bg-gray-100 dark:hover:bg-slate-700 transition-all text-sm font-medium text-gray-700 dark:text-slate-200"
+                        >
+                          <svg
+                            className="w-4 h-4"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z"
+                            />
+                          </svg>
+                          Levels
+                          {selectedLevels.size < ALL_LEVELS.length && (
+                            <span className="bg-primary text-white text-[0.6rem] font-bold px-1.5 py-0.5 rounded-full leading-none">
+                              {selectedLevels.size}
+                            </span>
+                          )}
+                        </button>
+                        {filterOpen && (
+                          <div className="absolute right-0 mt-1 z-10 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-lg shadow-lg py-1 min-w-[130px]">
+                            {ALL_LEVELS.map((lvl) => (
+                              <label
+                                key={lvl}
+                                className="flex items-center gap-2.5 px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700 select-none"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={selectedLevels.has(lvl)}
+                                  onChange={() => toggleLevel(lvl)}
+                                  className="rounded"
+                                />
+                                <span
+                                  className={`font-mono text-xs font-bold ${LEVEL_COLOR[lvl]}`}
+                                >
+                                  {lvl}
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {/* Copy button */}
+                      <button
+                        onClick={handleCopy}
+                        className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-300 dark:border-slate-600 hover:bg-gray-100 dark:hover:bg-slate-700 transition-all text-sm font-medium text-gray-700 dark:text-slate-200"
+                      >
+                        {copied ? (
+                          <>
+                            <svg
+                              className="w-4 h-4 text-success"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M5 13l4 4L19 7"
+                              />
+                            </svg>
+                            Copied!
+                          </>
+                        ) : (
+                          <>
+                            <svg
+                              className="w-4 h-4"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                              />
+                            </svg>
+                            Copy logs
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {loading && (
+                <div className="flex items-center justify-center py-16 text-gray-500 dark:text-slate-400">
+                  <svg
+                    className="animate-spin w-5 h-5 mr-2"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8v8z"
+                    />
+                  </svg>
+                  Loading logs…
+                </div>
+              )}
+
+              {error && (
+                <div className="rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 p-4 text-red-700 dark:text-red-400 text-sm">
+                  {error}
+                </div>
+              )}
+
+              {!loading && !error && logs && logs.length === 0 && (
+                <div className="text-center py-16 text-gray-400 dark:text-slate-500 text-sm">
+                  No log entries found. The job may have been cleaned up
+                  already.
+                </div>
+              )}
+
+              {!loading &&
+                !error &&
+                filteredLogs &&
+                filteredLogs.length === 0 &&
+                logs &&
+                logs.length > 0 && (
+                  <div className="text-center py-16 text-gray-400 dark:text-slate-500 text-sm">
+                    {searchQuery.trim()
+                      ? `No log entries match "${searchQuery.trim()}".`
+                      : "No log entries match the selected levels."}
+                  </div>
+                )}
+
+              {!loading &&
+                !error &&
+                filteredLogs &&
+                filteredLogs.length > 0 && (
+                  <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 overflow-hidden divide-y divide-gray-100 dark:divide-slate-700/50">
+                    {filteredLogs.map((entry, i) => (
+                      <LogRow key={i} entry={entry} searchQuery={searchQuery} />
+                    ))}
+                  </div>
+                )}
+            </main>
+            <Footer />
+          </div>
+        );
+      }
+
+      window.createRoot(document.getElementById("root")).render(<App />);
+    </script>
+  </body>
+</html>

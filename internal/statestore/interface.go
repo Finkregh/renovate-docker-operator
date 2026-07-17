@@ -8,7 +8,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/oluf-tech/renovate-docker-operator/internal/api"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/api"
 )
 
 // RenovateJobManager is the interface for managing RenovateJob state.

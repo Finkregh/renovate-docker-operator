@@ -54,7 +54,7 @@ We share the same Forgejo webhook logic, discovery agent, and UI patterns as ups
 
 ```bash
 # 1. Clone
-git clone https://github.com/oluf-tech/renovate-docker-operator.git
+git clone https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator.git
 cd renovate-docker-operator
 
 # 2. Copy and edit environment file

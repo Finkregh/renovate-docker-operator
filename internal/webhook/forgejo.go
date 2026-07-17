@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/oluf-tech/renovate-docker-operator/internal/api"
-	"github.com/oluf-tech/renovate-docker-operator/internal/statestore"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/api"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/statestore"
 )
 
 // ErrNoMatchingJob is returned when no RenovateJob matches the webhook request.
@@ -404,7 +404,6 @@ func hasCheckboxBeenChecked(body string) bool {
 func verifyRenovateDescriptionChange(body string) bool {
 	return isRenovateContent(body) && hasCheckboxBeenChecked(body)
 }
-
 
 func writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")

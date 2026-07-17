@@ -1,12 +1,2787 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Renovate Docker Operator</title>
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="16x16"
+      href="assets/favicon-small.png"
+    />
+    <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon.png" />
+
+    <script src="js/tailwind.min.js"></script>
+    <script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              primary: "#009bc5",
+              "primary-hover": "#00556c",
+              success: "#00c567",
+              error: "#c22828",
+              warning: "#ff8c1a",
+            },
+          },
+        },
+      };
+    </script>
+    <script src="js/theme-utils.js"></script>
+    <script src="js/babel.min.js"></script>
+    <script src="js/babel-config.js"></script>
+    <script type="module">
+      import { React, createRoot } from "./js/react-bundle.esm.js";
+      window.React = React;
+      window.createRoot = createRoot;
+    </script>
+    <script type="text/babel" src="components/ThemeToggle.js"></script>
+    <script type="text/babel" src="components/SiteHeader.js"></script>
+    <script type="text/babel" src="components/StatBadge.js"></script>
+    <script type="text/babel" src="components/Footer.js"></script>
+
+    <link rel="stylesheet" href="css/styles.css" />
   </head>
-  <body>
-    <div id="root">
-      <h1>Renovate Docker Operator</h1>
-      <p>UI placeholder — replace with upstream static assets.</p>
-    </div>
+  <body
+    class="bg-gray-50 dark:bg-slate-900 text-gray-900 dark:text-slate-100 transition-colors duration-200"
+  >
+    <div id="root"></div>
+
+    <script type="text/babel">
+      const { useState, useEffect, useCallback, useMemo, useRef } = React;
+
+      const formatTimeAgo = (timestamp) => {
+        const now = new Date();
+        const past = new Date(timestamp);
+        const diffInSeconds = Math.floor((now - past) / 1000);
+
+        if (diffInSeconds < 60) {
+          return `${diffInSeconds}s ago`;
+        } else if (diffInSeconds < 3600) {
+          const minutes = Math.floor(diffInSeconds / 60);
+          return `${minutes}m ago`;
+        } else if (diffInSeconds < 86400) {
+          const hours = Math.floor(diffInSeconds / 3600);
+          return `${hours}h ago`;
+        } else {
+          const days = Math.floor(diffInSeconds / 86400);
+          return `${days}d ago`;
+        }
+      };
+
+      const formatLocalTime = (timestamp) => {
+        if (!timestamp) return "Never";
+        const date = new Date(timestamp);
+        return date.toLocaleString(undefined, {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          timeZoneName: "short",
+        });
+      };
+
+      const formatCountdown = (timestamp) => {
+        const now = new Date();
+        const future = new Date(timestamp);
+        const diffInSeconds = Math.floor((future - now) / 1000);
+
+        if (diffInSeconds < 0) {
+          return "Overdue";
+        }
+
+        const days = Math.floor(diffInSeconds / 86400);
+        const hours = Math.floor((diffInSeconds % 86400) / 3600);
+        const minutes = Math.floor((diffInSeconds % 3600) / 60);
+        const seconds = diffInSeconds % 60;
+
+        if (days > 0) {
+          return { days, hours, minutes, seconds };
+        } else if (hours > 0) {
+          return { hours, minutes, seconds };
+        } else if (minutes > 0) {
+          return { minutes, seconds };
+        } else {
+          return { seconds };
+        }
+      };
+
+      const getProjectOpenPRCount = (project) => {
+        const activity = project?.prActivity;
+        if (!activity) {
+          return 0;
+        }
+
+        return (
+          (activity.created || 0) +
+          (activity.updated || 0) +
+          (activity.needsApproval || 0) +
+          (activity.unchanged || 0)
+        );
+      };
+
+      const projectHasIssues = (project) => {
+        return !!(
+          project?.logIssues &&
+          ((project.logIssues.warnCount || 0) > 0 ||
+            (project.logIssues.errorCount || 0) > 0)
+        );
+      };
+
+      const projectMatchesStatFilter = (project, filterKey) => {
+        if (!filterKey) {
+          return true;
+        }
+
+        switch (filterKey) {
+          case "withIssues":
+            return projectHasIssues(project);
+          case "openPRs":
+            return getProjectOpenPRCount(project) > 0;
+          case "pending":
+            return (project?.prActivity?.needsApproval || 0) > 0;
+          default:
+            return (project?.status || "").toLowerCase() === filterKey;
+        }
+      };
+
+      const buildDashboardUrl = (platform, endpoint, projectName) => {
+        if (!platform || platform === "github") {
+          let base = "https://github.com";
+          if (endpoint && !endpoint.includes("api.github.com")) {
+            base = endpoint.replace(/\/api\/v\d+\/?$/, "").replace(/\/$/, "");
+          }
+          return `${base}/${projectName}/issues?q=${encodeURIComponent('is:issue is:open "Dependency Dashboard" in:title')}`;
+        } else if (platform === "gitlab") {
+          const base = (endpoint || "https://gitlab.com")
+            .replace(/\/api\/v\d+\/?$/, "")
+            .replace(/\/$/, "");
+          return `${base}/${projectName}/-/issues?search=Dependency+Dashboard&state=opened`;
+        } else if (platform === "gitea" || platform === "forgejo") {
+          if (endpoint) {
+            const base = endpoint
+              .replace(/\/api\/v\d+\/?$/, "")
+              .replace(/\/$/, "");
+            return `${base}/${projectName}/issues?q=Dependency+Dashboard&type=comment&state=open`;
+          }
+        }
+        return null;
+      };
+
+      const _platformWebBase = (platform, endpoint) => {
+        if (!platform || platform === "github") {
+          if (endpoint && !endpoint.includes("api.github.com")) {
+            return endpoint.replace(/\/api\/v\d+\/?$/, "").replace(/\/$/, "");
+          }
+          return "https://github.com";
+        } else if (platform === "gitlab") {
+          return (endpoint || "https://gitlab.com")
+            .replace(/\/api\/v\d+\/?$/, "")
+            .replace(/\/$/, "");
+        } else if (platform === "bitbucket") {
+          return "https://bitbucket.org";
+        } else if (platform === "gitea" || platform === "forgejo") {
+          return endpoint
+            ? endpoint.replace(/\/api\/v\d+\/?$/, "").replace(/\/$/, "")
+            : null;
+        }
+        return null;
+      };
+
+      const buildPRUrl = (platform, endpoint, projectName) => {
+        const base = _platformWebBase(platform, endpoint);
+        if (!base) return null;
+        if (!platform || platform === "github")
+          return `${base}/${projectName}/pulls`;
+        if (platform === "gitlab")
+          return `${base}/${projectName}/-/merge_requests`;
+        if (platform === "bitbucket")
+          return `${base}/${projectName}/pull-requests`;
+        if (platform === "gitea" || platform === "forgejo")
+          return `${base}/${projectName}/pulls`;
+        return null;
+      };
+
+      const buildSinglePRUrl = (platform, endpoint, projectName, prNumber) => {
+        if (!prNumber) return null;
+        const base = _platformWebBase(platform, endpoint);
+        if (!base) return null;
+        if (!platform || platform === "github")
+          return `${base}/${projectName}/pull/${prNumber}`;
+        if (platform === "gitlab")
+          return `${base}/${projectName}/-/merge_requests/${prNumber}`;
+        if (platform === "bitbucket")
+          return `${base}/${projectName}/pull-requests/${prNumber}`;
+        if (platform === "gitea" || platform === "forgejo")
+          return `${base}/${projectName}/pulls/${prNumber}`;
+        return null;
+      };
+
+      function useTooltip(project) {
+        const [isVisible, setIsVisible] = useState(false);
+        const containerRef = React.useRef(null);
+        const timeoutRef = React.useRef(null);
+
+        const handleMouseEnter = (e) => {
+          // Check if hovering over element with data-no-tooltip
+          if (e.target.closest("[data-no-tooltip]")) {
+            return;
+          }
+
+          timeoutRef.current = setTimeout(() => {
+            setIsVisible(true);
+          }, 500); // 500ms delay before showing tooltip
+        };
+
+        const handleMouseMove = (e) => {
+          // Check if moved into element with data-no-tooltip
+          if (e.target.closest("[data-no-tooltip]")) {
+            if (timeoutRef.current) {
+              clearTimeout(timeoutRef.current);
+              timeoutRef.current = null;
+            }
+            setIsVisible(false);
+          } else {
+            // Moved into a normal area - start tooltip if not already showing
+            if (!isVisible && !timeoutRef.current) {
+              timeoutRef.current = setTimeout(() => {
+                setIsVisible(true);
+                timeoutRef.current = null;
+              }, 500);
+            }
+          }
+        };
+
+        const handleMouseLeave = () => {
+          if (timeoutRef.current) {
+            clearTimeout(timeoutRef.current);
+          }
+          setIsVisible(false);
+        };
+
+        useEffect(() => {
+          return () => {
+            if (timeoutRef.current) {
+              clearTimeout(timeoutRef.current);
+            }
+          };
+        }, []);
+
+        const tooltipElement =
+          isVisible && project ? (
+            <div
+              className="fixed z-50 pointer-events-none border-0"
+              style={{
+                left: "50%",
+                top: containerRef.current
+                  ? `${containerRef.current.getBoundingClientRect().top - 12}px`
+                  : "0",
+                transform: "translate(-50%, -100%)",
+              }}
+            >
+              <div className="bg-gray-900 dark:bg-slate-700 text-white text-sm rounded-lg shadow-xl px-3 py-2 max-w-xs animate-fadeIn border-0 relative">
+                <div className="font-medium mb-1 text-gray-100">Last Run</div>
+                <div className="text-gray-300 dark:text-slate-300 whitespace-nowrap">
+                  {formatLocalTime(project.lastRun)}
+                </div>
+                {project.duration && (
+                  <>
+                    <div className="font-medium mb-1 text-gray-100">
+                      Last Run Duration
+                    </div>
+                    <div className="text-gray-300 dark:text-slate-300 whitespace-nowrap">
+                      {project.duration}
+                    </div>
+                  </>
+                )}
+                <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 translate-y-1/2 rotate-45 w-2 h-2 bg-gray-900 dark:bg-slate-700 border-0"></div>
+              </div>
+            </div>
+          ) : null;
+
+        return {
+          containerRef,
+          tooltipProps: {
+            onMouseEnter: handleMouseEnter,
+            onMouseMove: handleMouseMove,
+            onMouseLeave: handleMouseLeave,
+          },
+          tooltipElement,
+        };
+      }
+
+      function Countdown({ nextSchedule }) {
+        const [countdown, setCountdown] = useState(() =>
+          formatCountdown(nextSchedule),
+        );
+
+        useEffect(() => {
+          const interval = setInterval(() => {
+            setCountdown(formatCountdown(nextSchedule));
+          }, 1000);
+
+          return () => clearInterval(interval);
+        }, [nextSchedule]);
+
+        if (countdown === "Overdue") {
+          return <span className="text-error font-semibold">Overdue</span>;
+        }
+
+        const parts = [];
+        if (countdown.days !== undefined)
+          parts.push(
+            <div key="days" className="flex flex-col items-center w-8 sm:w-12">
+              <span className="text-xs sm:text-sm font-bold text-primary tabular-nums">
+                {String(countdown.days).padStart(2, "0")}
+              </span>
+              <span className="text-[0.625rem] sm:text-xs text-gray-500 dark:text-slate-400 uppercase">
+                Days
+              </span>
+            </div>,
+          );
+        if (countdown.hours !== undefined)
+          parts.push(
+            <div key="hours" className="flex flex-col items-center w-8 sm:w-12">
+              <span className="text-xs sm:text-sm font-bold text-primary tabular-nums">
+                {String(countdown.hours).padStart(2, "0")}
+              </span>
+              <span className="text-[0.625rem] sm:text-xs text-gray-500 dark:text-slate-400 uppercase">
+                Hrs
+              </span>
+            </div>,
+          );
+        if (countdown.minutes !== undefined)
+          parts.push(
+            <div
+              key="minutes"
+              className="flex flex-col items-center w-8 sm:w-12"
+            >
+              <span className="text-xs sm:text-sm font-bold text-primary tabular-nums">
+                {String(countdown.minutes).padStart(2, "0")}
+              </span>
+              <span className="text-[0.625rem] sm:text-xs text-gray-500 dark:text-slate-400 uppercase">
+                Min
+              </span>
+            </div>,
+          );
+        if (countdown.seconds !== undefined)
+          parts.push(
+            <div
+              key="seconds"
+              className="flex flex-col items-center w-8 sm:w-12"
+            >
+              <span className="text-xs sm:text-sm font-bold text-primary tabular-nums">
+                {String(countdown.seconds).padStart(2, "0")}
+              </span>
+              <span className="text-[0.625rem] sm:text-xs text-gray-500 dark:text-slate-400 uppercase">
+                Sec
+              </span>
+            </div>,
+          );
+
+        return (
+          <div className="flex gap-0.5 sm:gap-1 items-center flex-wrap">
+            {parts.map((part, index) => (
+              <React.Fragment key={part.key}>
+                {index > 0 && (
+                  <span className="text-gray-400 dark:text-slate-500 font-bold text-base sm:text-xl px-0.5">
+                    :
+                  </span>
+                )}
+                {part}
+              </React.Fragment>
+            ))}
+          </div>
+        );
+      }
+
+      function Toast({ toast, onClose }) {
+        const getToastClasses = (type) => {
+          const base =
+            "w-full sm:min-w-[300px] sm:max-w-[400px] p-3 sm:p-4 rounded-lg shadow-xl backdrop-blur-sm border border-white/20 text-white";
+          const gradients = {
+            success: "bg-gradient-to-br from-success/95 to-success/85",
+            error: "bg-gradient-to-br from-error/95 to-error/85",
+            info: "bg-gradient-to-br from-primary/95 to-primary/85",
+          };
+          return `${base} ${gradients[type]}`;
+        };
+
+        return (
+          <div className={getToastClasses(toast.type)}>
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0">
+                {toast.type === "success" && (
+                  <svg
+                    className="w-5 h-5"
+                    fill="currentColor"
+                    viewBox="0 0 20 20"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                )}
+                {toast.type === "error" && (
+                  <svg
+                    className="w-5 h-5"
+                    fill="currentColor"
+                    viewBox="0 0 20 20"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                )}
+                {toast.type === "info" && (
+                  <svg
+                    className="w-5 h-5"
+                    fill="currentColor"
+                    viewBox="0 0 20 20"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                )}
+              </div>
+              <div className="flex-1">
+                <p className="font-semibold text-sm">{toast.title}</p>
+                {toast.message && (
+                  <p className="text-xs mt-1 opacity-90">{toast.message}</p>
+                )}
+              </div>
+              <button
+                onClick={() => onClose(toast.id)}
+                className="text-current opacity-60 hover:opacity-100 transition"
+                aria-label="Close notification"
+              >
+                <svg
+                  className="w-4 h-4"
+                  fill="currentColor"
+                  viewBox="0 0 20 20"
+                  aria-hidden="true"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </button>
+            </div>
+          </div>
+        );
+      }
+
+      function ToastContainer({ toasts, onRemove }) {
+        if (toasts.length === 0) return null;
+
+        return (
+          <div className="fixed top-4 right-2 left-2 sm:left-auto sm:right-4 z-50 space-y-3 sm:w-auto">
+            {toasts.map((toast) => (
+              <div
+                key={toast.id}
+                style={{
+                  animation: toast.removing
+                    ? "slideOut 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards"
+                    : "slideIn 0.5s cubic-bezier(0.16, 1, 0.3, 1)",
+                }}
+              >
+                <Toast toast={toast} onClose={onRemove} />
+              </div>
+            ))}
+          </div>
+        );
+      }
+
+      const BASE = window.__BASE_PATH__ || "";
+      const withBase = (path) => (path.startsWith("/") ? BASE + path : path);
+
+      const authFetch = async (url, options = {}) => {
+        return fetch(withBase(url), options);
+      };
+
+      function App() {
+        const [jobs, setJobs] = useState([]);
+        const [loading, setLoading] = useState(true);
+        const [error, setError] = useState(null);
+        const [stats, setStats] = useState({
+          total: 0,
+          scheduled: 0,
+          running: 0,
+          completed: 0,
+          failed: 0,
+          withIssues: 0,
+          openPRs: 0,
+          pending: 0,
+        });
+        const [version, setVersion] = useState(null);
+        const [toasts, setToasts] = useState([]);
+        const nextToastIdRef = useRef(0);
+        const hasLoadedOnce = useRef(false);
+        const [authInfo, setAuthInfo] = useState({ enabled: false });
+        const STAT_FILTER_LABELS = {
+          failed: "Failed",
+          scheduled: "Scheduled",
+          running: "Running",
+          completed: "Completed",
+          openPRs: "Open PRs",
+          pending: "Pending",
+          withIssues: "With Issues",
+        };
+        const STAT_FILTER_PARAM = "filter";
+
+        const [selectedStatFilter, setSelectedStatFilter] = useState(() => {
+          try {
+            const fromUrl = new URLSearchParams(window.location.search).get(
+              STAT_FILTER_PARAM,
+            );
+            if (fromUrl && STAT_FILTER_LABELS[fromUrl]) {
+              return fromUrl;
+            }
+            const stored = localStorage.getItem("selectedStatFilter");
+            return stored && STAT_FILTER_LABELS[stored] ? stored : null;
+          } catch {
+            return null;
+          }
+        });
+
+        useEffect(() => {
+          try {
+            const url = new URL(window.location.href);
+            if (selectedStatFilter) {
+              url.searchParams.set(STAT_FILTER_PARAM, selectedStatFilter);
+            } else {
+              url.searchParams.delete(STAT_FILTER_PARAM);
+            }
+            window.history.replaceState(
+              null,
+              "",
+              url.pathname + url.search + url.hash,
+            );
+          } catch {}
+        }, [selectedStatFilter]);
+
+        const persistStatFilter = (value) => {
+          try {
+            if (value === null) {
+              localStorage.removeItem("selectedStatFilter");
+            } else {
+              localStorage.setItem("selectedStatFilter", value);
+            }
+          } catch {}
+        };
+
+        const toggleStatFilter = useCallback((filterKey) => {
+          setSelectedStatFilter((current) => {
+            const next = current === filterKey ? null : filterKey;
+            persistStatFilter(next);
+            return next;
+          });
+        }, []);
+
+        const clearStatFilter = useCallback(() => {
+          setSelectedStatFilter(null);
+          persistStatFilter(null);
+        }, []);
+
+        const filteredJobs = useMemo(() => {
+          if (!selectedStatFilter) {
+            return jobs;
+          }
+
+          return jobs
+            .map((job) => {
+              const projects = (
+                Array.isArray(job.projects) ? job.projects : []
+              ).filter((project) =>
+                projectMatchesStatFilter(project, selectedStatFilter),
+              );
+
+              return {
+                ...job,
+                projects,
+              };
+            })
+            .filter((job) => job.projects.length > 0);
+        }, [jobs, selectedStatFilter]);
+
+        const filteredProjectCount = useMemo(() => {
+          return filteredJobs.reduce(
+            (total, job) =>
+              total + (Array.isArray(job.projects) ? job.projects.length : 0),
+            0,
+          );
+        }, [filteredJobs]);
+
+        const addToast = useCallback(
+          (type, title, message = "", duration = 5000) => {
+            nextToastIdRef.current += 1;
+            const id = nextToastIdRef.current;
+            const toast = { id, type, title, message, removing: false };
+            setToasts((prev) => [...prev, toast]);
+            setTimeout(() => removeToast(id), duration);
+          },
+          [],
+        );
+
+        const removeToast = (id) => {
+          setToasts((prev) =>
+            prev.map((t) => (t.id === id ? { ...t, removing: true } : t)),
+          );
+          setTimeout(() => {
+            setToasts((prev) => prev.filter((t) => t.id !== id));
+          }, 400);
+        };
+
+        const calculateStats = (jobsList) => {
+          const newStats = {
+            total: 0,
+            scheduled: 0,
+            running: 0,
+            completed: 0,
+            failed: 0,
+            withIssues: 0,
+            openPRs: 0,
+            pending: 0,
+          };
+          jobsList.forEach((job) => {
+            if (Array.isArray(job.projects)) {
+              newStats.total += job.projects.length;
+              job.projects.forEach((project) => {
+                const status = (project.status || "").toLowerCase();
+                if (Object.hasOwn(newStats, status)) {
+                  newStats[status]++;
+                }
+                if (projectHasIssues(project)) {
+                  newStats.withIssues++;
+                }
+                newStats.openPRs += getProjectOpenPRCount(project);
+                newStats.pending += project?.prActivity?.needsApproval || 0;
+              });
+            }
+          });
+          return newStats;
+        };
+
+        const loadJobs = useCallback(async () => {
+          try {
+            if (!hasLoadedOnce.current) {
+              setLoading(true);
+            }
+            setError(null);
+
+            const response = await authFetch("/api/v1/renovatejobs");
+            if (!response.ok)
+              throw new Error(`HTTP ${response.status}: Failed to fetch jobs`);
+
+            const data = await response.json();
+            if (typeof data !== "object" || data === null)
+              throw new Error("Invalid response format");
+
+            let jobsList = Array.isArray(data)
+              ? data.sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+              : [];
+
+            for (const job of jobsList) {
+              job.discoveryRunning = job.discoveryStatus === "running";
+              if (Array.isArray(job.projects)) {
+                job.projects.forEach((project) => {
+                  project.triggering = false;
+                  project.cancelling = false;
+                });
+              }
+            }
+
+            hasLoadedOnce.current = true;
+            setJobs(jobsList);
+            setStats(calculateStats(jobsList));
+          } catch (err) {
+            console.error("Error loading jobs:", err);
+            setError(err.message);
+            addToast("error", "Failed to load jobs", err.message);
+          } finally {
+            setLoading(false);
+          }
+        }, [addToast]);
+
+        const runDiscovery = async (job) => {
+          if (job.discoveryRunning) return;
+
+          setJobs((prev) =>
+            prev.map((j) =>
+              j.name === job.name && j.namespace === job.namespace
+                ? { ...j, discoveryRunning: true }
+                : j,
+            ),
+          );
+
+          try {
+            const response = await authFetch("/api/v1/discovery/start", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                renovateJob: job.name,
+                namespace: job.namespace,
+              }),
+            });
+
+            if (response.ok) {
+              addToast(
+                "success",
+                "Discovery Started",
+                `Discovery job for ${job.name} has been triggered`,
+              );
+            } else {
+              const errorText = await response.text();
+              throw new Error(errorText || "Failed to start discovery");
+            }
+          } catch (err) {
+            console.error("Error running discovery:", err);
+            setJobs((prev) =>
+              prev.map((j) =>
+                j.name === job.name && j.namespace === job.namespace
+                  ? { ...j, discoveryRunning: false }
+                  : j,
+              ),
+            );
+            addToast("error", "Discovery Failed", err.message);
+          }
+        };
+
+        const triggerRenovate = async (job, project) => {
+          if (project.triggering) return;
+
+          setJobs((prev) =>
+            prev.map((j) => {
+              if (j.name === job.name && j.namespace === job.namespace) {
+                return {
+                  ...j,
+                  projects: j.projects.map((p) =>
+                    p.name === project.name ? { ...p, triggering: true } : p,
+                  ),
+                };
+              }
+              return j;
+            }),
+          );
+
+          try {
+            const response = await authFetch("/api/v1/renovate", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                renovateJob: job.name,
+                namespace: job.namespace,
+                project: project.name,
+              }),
+            });
+
+            if (response.ok) {
+              addToast(
+                "success",
+                "Renovate Triggered",
+                `Job triggered for ${project.name}`,
+              );
+            } else {
+              const errorText = await response.text();
+              throw new Error(errorText || "Failed to trigger renovate");
+            }
+          } catch (err) {
+            console.error("Error triggering renovate:", err);
+            addToast("error", "Trigger Failed", err.message);
+          } finally {
+            loadJobs();
+          }
+        };
+
+        const cancelRenovate = async (job, project) => {
+          if (project.cancelling) return;
+
+          setJobs((prev) =>
+            prev.map((j) => {
+              if (j.name === job.name && j.namespace === job.namespace) {
+                return {
+                  ...j,
+                  projects: j.projects.map((p) =>
+                    p.name === project.name ? { ...p, cancelling: true } : p,
+                  ),
+                };
+              }
+              return j;
+            }),
+          );
+
+          try {
+            const response = await authFetch("/api/v1/renovate/cancel", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                renovateJob: job.name,
+                namespace: job.namespace,
+                project: project.name,
+              }),
+            });
+
+            if (response.ok) {
+              addToast(
+                "success",
+                "Renovate Cancelled",
+                `Job cancelled for ${project.name}`,
+              );
+            } else {
+              const errorText = await response.text();
+              throw new Error(errorText || "Failed to cancel renovate");
+            }
+          } catch (err) {
+            console.error("Error cancelling renovate:", err);
+            addToast("error", "Cancel Failed", err.message);
+          } finally {
+            loadJobs();
+          }
+        };
+
+        const triggerAllRenovate = async (job) => {
+          if (job.triggeringAll) return;
+
+          setJobs((prev) =>
+            prev.map((j) =>
+              j.name === job.name && j.namespace === job.namespace
+                ? { ...j, triggeringAll: true }
+                : j,
+            ),
+          );
+
+          try {
+            const response = await authFetch("/api/v1/renovate/all", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                renovateJob: job.name,
+                namespace: job.namespace,
+              }),
+            });
+
+            if (response.ok) {
+              addToast(
+                "success",
+                "All Triggered",
+                `All projects triggered for ${job.name}`,
+              );
+            } else {
+              const errorText = await response.text();
+              throw new Error(errorText || "Failed to trigger all projects");
+            }
+          } catch (err) {
+            console.error("Error triggering all projects:", err);
+            addToast("error", "Trigger All Failed", err.message);
+          } finally {
+            setJobs((prev) =>
+              prev.map((j) =>
+                j.name === job.name && j.namespace === job.namespace
+                  ? { ...j, triggeringAll: false }
+                  : j,
+              ),
+            );
+            loadJobs();
+          }
+        };
+
+        const saveExecutionOptions = async (job, options) => {
+          try {
+            const response = await authFetch("/api/v1/executionOptions", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                renovateJob: job.name,
+                namespace: job.namespace,
+                debug: options.debug,
+              }),
+            });
+            if (response.ok) {
+              setJobs((prev) =>
+                prev.map((j) =>
+                  j.name === job.name && j.namespace === job.namespace
+                    ? {
+                        ...j,
+                        executionOptions: { ...j.executionOptions, ...options },
+                      }
+                    : j,
+                ),
+              );
+              addToast(
+                "success",
+                "Options Saved",
+                `Execution options updated for ${job.name}`,
+              );
+            } else {
+              const errorText = await response.text();
+              throw new Error(errorText || "Failed to save options");
+            }
+          } catch (err) {
+            addToast("error", "Save Failed", err.message);
+          }
+        };
+
+        useEffect(() => {
+          fetch(BASE + "/api/v1/version")
+            .then((res) => res.json())
+            .then((data) => setVersion(data.version))
+            .catch(() => {});
+        }, []);
+
+        useEffect(() => {
+          loadJobs();
+          const interval = setInterval(loadJobs, 30000);
+          return () => clearInterval(interval);
+        }, [loadJobs]);
+
+        return (
+          <div className="min-h-screen flex flex-col">
+            <ToastContainer toasts={toasts} onRemove={removeToast} />
+
+            <SiteHeader version={version} authInfo={authInfo}>
+              <StatBadge
+                label="All"
+                value={loading ? "—" : stats.total}
+                onClick={clearStatFilter}
+                selected={!selectedStatFilter}
+                title="Show all projects"
+              />
+              <StatBadge
+                label="Failed"
+                value={loading ? "—" : stats.failed}
+                valueClass="text-error"
+                onClick={() => toggleStatFilter("failed")}
+                selected={selectedStatFilter === "failed"}
+                title="Show only jobs with failed projects"
+              />
+              <StatBadge
+                label="Scheduled"
+                value={loading ? "—" : stats.scheduled}
+                valueClass="text-warning"
+                onClick={() => toggleStatFilter("scheduled")}
+                selected={selectedStatFilter === "scheduled"}
+                title="Show only jobs with scheduled projects"
+              />
+              <StatBadge
+                label="Running"
+                value={loading ? "—" : stats.running}
+                valueClass="text-primary"
+                onClick={() => toggleStatFilter("running")}
+                selected={selectedStatFilter === "running"}
+                title="Show only jobs with running projects"
+              />
+              <StatBadge
+                label="Completed"
+                value={loading ? "—" : stats.completed}
+                valueClass="text-success"
+                onClick={() => toggleStatFilter("completed")}
+                selected={selectedStatFilter === "completed"}
+                title="Show only jobs with completed projects"
+              />
+              <StatBadge
+                label="Open PRs"
+                value={loading ? "—" : stats.openPRs}
+                valueClass="text-blue-500"
+                borderClass="border-blue-200 dark:border-blue-700"
+                onClick={() => toggleStatFilter("openPRs")}
+                selected={selectedStatFilter === "openPRs"}
+                title="Show only jobs with open pull requests or merge requests"
+              />
+              <StatBadge
+                label="Pending"
+                value={loading ? "—" : stats.pending}
+                valueClass="text-orange-500"
+                borderClass="border-orange-200 dark:border-orange-700"
+                onClick={() => toggleStatFilter("pending")}
+                selected={selectedStatFilter === "pending"}
+                title="Show only jobs with updates awaiting approval"
+              />
+              <StatBadge
+                label="With Issues"
+                value={loading ? "—" : stats.withIssues}
+                valueClass="text-amber-500"
+                borderClass="border-amber-300 dark:border-amber-600"
+                onClick={() => toggleStatFilter("withIssues")}
+                selected={selectedStatFilter === "withIssues"}
+                title="Show only jobs with warnings or errors"
+              />
+            </SiteHeader>
+
+            <main className="flex-1 max-w-7xl mx-auto w-full px-3 sm:px-6 lg:px-8 pb-6 sm:pb-8">
+              {loading && jobs.length === 0 && (
+                <div className="space-y-6">
+                  <div className="bg-white dark:bg-slate-800 rounded-lg p-6 border border-gray-200 dark:border-slate-700 shadow-sm animate-pulse">
+                    <div className="h-8 bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 bg-[length:200%_100%] rounded-lg mb-4 skeleton-header"></div>
+                    <div className="flex flex-col gap-3">
+                      <div className="h-4 bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 bg-[length:200%_100%] rounded skeleton-line"></div>
+                      <div className="h-4 bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 bg-[length:200%_100%] rounded skeleton-line"></div>
+                      <div className="h-4 bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 bg-[length:200%_100%] rounded skeleton-line"></div>
+                    </div>
+                  </div>
+                  <div className="bg-white dark:bg-slate-800 rounded-lg p-6 border border-gray-200 dark:border-slate-700 shadow-sm animate-pulse">
+                    <div className="h-8 bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 bg-[length:200%_100%] rounded-lg mb-4 skeleton-header"></div>
+                    <div className="flex flex-col gap-3">
+                      <div className="h-4 bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 bg-[length:200%_100%] rounded skeleton-line"></div>
+                      <div className="h-4 bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 bg-[length:200%_100%] rounded skeleton-line"></div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {error && !loading && (
+                <div className="bg-error/10 border border-error/20 rounded-lg p-6 text-center">
+                  <svg
+                    className="w-12 h-12 text-error mx-auto mb-4"
+                    fill="currentColor"
+                    viewBox="0 0 20 20"
+                    aria-hidden="true"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                  <h3 className="text-lg font-semibold text-error mb-2">
+                    Failed to load jobs
+                  </h3>
+                  <p className="text-gray-600 dark:text-slate-400 mb-4">
+                    {error}
+                  </p>
+                  <button
+                    onClick={loadJobs}
+                    className="px-4 py-2 bg-primary hover:bg-primary-hover text-white rounded-lg transition-colors"
+                    aria-label="Retry loading jobs"
+                  >
+                    Retry
+                  </button>
+                </div>
+              )}
+
+              {(!loading || jobs.length > 0) && (
+                <div className="space-y-6">
+                  {selectedStatFilter && (
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-lg border border-primary/20 bg-primary/5 dark:bg-primary/10 px-4 py-3">
+                      <p className="text-sm text-gray-700 dark:text-slate-300">
+                        Showing{" "}
+                        <span className="font-semibold text-primary">
+                          {filteredProjectCount}
+                        </span>{" "}
+                        matching project{filteredProjectCount === 1 ? "" : "s"}{" "}
+                        in {filteredJobs.length} job
+                        {filteredJobs.length === 1 ? "" : "s"} for{" "}
+                        <span className="font-semibold text-primary">
+                          {STAT_FILTER_LABELS[selectedStatFilter]}
+                        </span>
+                      </p>
+                      <button
+                        type="button"
+                        onClick={clearStatFilter}
+                        className="self-start sm:self-auto text-sm font-medium text-primary hover:text-primary-hover transition-colors"
+                      >
+                        Clear filter
+                      </button>
+                    </div>
+                  )}
+
+                  {filteredJobs.map((job) => (
+                    <JobCard
+                      key={`${job.name}-${job.namespace}`}
+                      job={job}
+                      onRunDiscovery={runDiscovery}
+                      onTriggerRenovate={triggerRenovate}
+                      onTriggerAllRenovate={triggerAllRenovate}
+                      onCancelRenovate={cancelRenovate}
+                      onSaveExecutionOptions={saveExecutionOptions}
+                    />
+                  ))}
+
+                  {filteredJobs.length === 0 && !loading && !error && (
+                    <div className="text-center py-12 bg-white dark:bg-slate-800 rounded-lg border border-gray-200 dark:border-slate-700 shadow-sm">
+                      <svg
+                        className="w-16 h-16 text-gray-400 mx-auto mb-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth="2"
+                          d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"
+                        />
+                      </svg>
+                      <h3 className="text-lg font-semibold text-gray-700 dark:text-slate-300 mb-2">
+                        {selectedStatFilter
+                          ? "No jobs match this filter"
+                          : "No Renovate Jobs Found"}
+                      </h3>
+                      <p className="text-gray-500 dark:text-slate-400 mb-4">
+                        {selectedStatFilter
+                          ? `Try clearing the ${STAT_FILTER_LABELS[selectedStatFilter]} filter to see all jobs again.`
+                          : "Create a RenovateJob resource to get started."}
+                      </p>
+                      {selectedStatFilter && (
+                        <button
+                          type="button"
+                          onClick={clearStatFilter}
+                          className="px-4 py-2 bg-primary hover:bg-primary-hover text-white rounded-lg transition-colors"
+                        >
+                          Show all jobs
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </main>
+            <Footer />
+          </div>
+        );
+      }
+
+      function getSortedProjects(projects, sortConfig) {
+        if (!projects || projects.length === 0) {
+          return [];
+        }
+
+        const sortedProjects = [...projects];
+
+        if (sortConfig.key) {
+          sortedProjects.sort((a, b) => {
+            let aValue = a[sortConfig.key];
+            let bValue = b[sortConfig.key];
+
+            // Handle null/undefined values
+            if (!aValue && !bValue) return 0;
+            if (!aValue) return sortConfig.direction === "asc" ? 1 : -1;
+            if (!bValue) return sortConfig.direction === "asc" ? -1 : 1;
+
+            if (sortConfig.key === "status") {
+              const statusOrder = {
+                running: 0,
+                scheduled: 1,
+                failed: 2,
+                completed: 3,
+              };
+              const aStatus = statusOrder[(a.status || "").toLowerCase()] ?? 99;
+              const bStatus = statusOrder[(b.status || "").toLowerCase()] ?? 99;
+
+              // Primary: status
+              if (aStatus !== bStatus) {
+                return sortConfig.direction === "asc"
+                  ? aStatus - bStatus
+                  : bStatus - aStatus;
+              }
+
+              // Secondary: onboarding state within same status
+              const aHasConfig =
+                a.renovateResultStatus && a.renovateResultStatus !== "done";
+              const bHasConfig =
+                b.renovateResultStatus && b.renovateResultStatus !== "done";
+              const aOnboarding = aHasConfig ? 1 : 0;
+              const bOnboarding = bHasConfig ? 1 : 0;
+
+              if (aOnboarding !== bOnboarding) {
+                return sortConfig.direction === "asc"
+                  ? aOnboarding - bOnboarding
+                  : bOnboarding - aOnboarding;
+              }
+
+              // Tertiary: name
+              const aName = (a.name || "").toLowerCase();
+              const bName = (b.name || "").toLowerCase();
+              return aName.localeCompare(bName);
+            }
+
+            // Special handling for lastRun (date comparison)
+            if (sortConfig.key === "lastRun") {
+              aValue = new Date(aValue).getTime();
+              bValue = new Date(bValue).getTime();
+            }
+
+            // String comparison
+            if (typeof aValue === "string" && typeof bValue === "string") {
+              return sortConfig.direction === "asc"
+                ? aValue.localeCompare(bValue)
+                : bValue.localeCompare(aValue);
+            }
+
+            // Numeric comparison
+            if (aValue < bValue) {
+              return sortConfig.direction === "asc" ? -1 : 1;
+            }
+            if (aValue > bValue) {
+              return sortConfig.direction === "asc" ? 1 : -1;
+            }
+            return 0;
+          });
+        }
+
+        return sortedProjects;
+      }
+
+      // Sanitize project name for use in HTML IDs (replace characters invalid in IDs like slashes)
+      const safeId = (name) => name.replace(/[^a-zA-Z0-9_-]/g, "-");
+
+      // Shared badge class for PR action types
+      const prActionBadgeClass = (action) => {
+        const base =
+          "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap";
+        switch (action) {
+          case "automerged":
+            return `${base} bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 ring-1 ring-purple-300 dark:ring-purple-700`;
+          case "created":
+            return `${base} bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 ring-1 ring-green-300 dark:ring-green-700`;
+          case "updated":
+            return `${base} bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 ring-1 ring-amber-300 dark:ring-amber-700`;
+          case "needs-approval":
+            return `${base} bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400 ring-1 ring-orange-300 dark:ring-orange-700`;
+          default:
+            return `${base} bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 ring-1 ring-gray-300 dark:ring-gray-600`;
+        }
+      };
+
+      function PRActivityBadges({
+        prActivity,
+        expanded,
+        onToggle,
+        projectName,
+      }) {
+        if (!prActivity)
+          return (
+            <span className="text-gray-400 dark:text-slate-500 text-sm">-</span>
+          );
+
+        const {
+          automerged = 0,
+          created = 0,
+          updated = 0,
+          needsApproval = 0,
+          unchanged = 0,
+        } = prActivity;
+        if (
+          !automerged &&
+          !created &&
+          !updated &&
+          !needsApproval &&
+          !unchanged
+        ) {
+          return (
+            <span className="text-gray-400 dark:text-slate-500 text-sm">-</span>
+          );
+        }
+
+        const hasPRs = prActivity.prs && prActivity.prs.length > 0;
+        const badges = [];
+        if (automerged > 0)
+          badges.push(
+            <span key="automerged" className={prActionBadgeClass("automerged")}>
+              {automerged} automerged
+            </span>,
+          );
+        if (created > 0)
+          badges.push(
+            <span key="created" className={prActionBadgeClass("created")}>
+              {created} created
+            </span>,
+          );
+        if (updated > 0)
+          badges.push(
+            <span key="updated" className={prActionBadgeClass("updated")}>
+              {updated} updated
+            </span>,
+          );
+        if (needsApproval > 0)
+          badges.push(
+            <span
+              key="needs-approval"
+              className={prActionBadgeClass("needs-approval")}
+            >
+              {needsApproval} needs approval
+            </span>,
+          );
+        if (unchanged > 0)
+          badges.push(
+            <span key="unchanged" className={prActionBadgeClass("unchanged")}>
+              {unchanged} unchanged
+            </span>,
+          );
+
+        const chevron = hasPRs ? (
+          <svg
+            className={`w-4 h-4 text-gray-400 dark:text-slate-500 transition-transform duration-200 ${expanded ? "rotate-180" : ""}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M19 9l-7 7-7-7"
+            />
+          </svg>
+        ) : null;
+
+        if (!hasPRs) {
+          return (
+            <div className="flex items-center gap-1.5 flex-wrap">{badges}</div>
+          );
+        }
+
+        return (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggle();
+            }}
+            className="flex items-center gap-1.5 flex-wrap rounded-lg p-0.5 -m-0.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none hover:opacity-80 transition-opacity"
+            {...(expanded
+              ? {
+                  "aria-expanded": true,
+                  "aria-controls": `pr-details-${safeId(projectName)}`,
+                }
+              : { "aria-expanded": false })}
+          >
+            {badges}
+            {chevron}
+          </button>
+        );
+      }
+
+      function PRDetailRow({
+        prActivity,
+        projectName,
+        platform,
+        platformEndpoint,
+      }) {
+        if (!prActivity || !prActivity.prs || prActivity.prs.length === 0)
+          return null;
+
+        return (
+          <tr id={`pr-details-${safeId(projectName)}`}>
+            <td colSpan="7" className="px-6 py-0">
+              <div className="py-3 pl-4 border-l-2 border-gray-200 dark:border-slate-600 max-h-64 overflow-y-auto">
+                <div className="space-y-1.5">
+                  {prActivity.prs.map((pr, idx) => {
+                    const prUrl = buildSinglePRUrl(
+                      platform,
+                      platformEndpoint,
+                      projectName,
+                      pr.number,
+                    );
+                    return (
+                      <div
+                        key={idx}
+                        className="flex items-center gap-2 text-sm"
+                      >
+                        <span className={prActionBadgeClass(pr.action)}>
+                          {pr.action}
+                        </span>
+                        {prUrl ? (
+                          <a
+                            href={prUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary hover:text-primary-hover hover:underline truncate"
+                            title={pr.title || prUrl}
+                          >
+                            {pr.title || prUrl}
+                          </a>
+                        ) : (
+                          <span
+                            className="text-gray-700 dark:text-slate-300 truncate"
+                            title={pr.title}
+                          >
+                            {pr.title || "Untitled PR"}
+                          </span>
+                        )}
+                        {pr.number && prUrl && (
+                          <a
+                            href={prUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-gray-400 dark:text-slate-500 hover:text-primary hover:dark:text-primary-hover text-xs flex-shrink-0"
+                          >
+                            #{pr.number}
+                          </a>
+                        )}
+                        {pr.number && !prUrl && (
+                          <span className="text-gray-400 dark:text-slate-500 text-xs flex-shrink-0">
+                            #{pr.number}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {prActivity.truncated && (
+                    <div className="text-xs text-gray-400 dark:text-slate-500 italic mt-1">
+                      Some PRs omitted (list truncated)
+                    </div>
+                  )}
+                </div>
+              </div>
+            </td>
+          </tr>
+        );
+      }
+
+      const issueLevelBadgeClass = (level) => {
+        const base =
+          "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap";
+        if (level >= 50)
+          return `${base} bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 ring-1 ring-red-300 dark:ring-red-700`;
+        return `${base} bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 ring-1 ring-amber-300 dark:ring-amber-700`;
+      };
+
+      function IssuesBadges({ logIssues, expanded, onToggle, projectName }) {
+        if (
+          !logIssues ||
+          (logIssues.warnCount === 0 && logIssues.errorCount === 0)
+        ) {
+          return (
+            <span className="text-gray-400 dark:text-slate-500 text-sm">-</span>
+          );
+        }
+
+        const hasDetails = logIssues.issues && logIssues.issues.length > 0;
+        const badges = [];
+        if (logIssues.errorCount > 0)
+          badges.push(
+            <span key="error" className={issueLevelBadgeClass(50)}>
+              {logIssues.errorCount} error
+              {logIssues.errorCount !== 1 ? "s" : ""}
+            </span>,
+          );
+        if (logIssues.warnCount > 0)
+          badges.push(
+            <span key="warn" className={issueLevelBadgeClass(40)}>
+              {logIssues.warnCount} warn{logIssues.warnCount !== 1 ? "s" : ""}
+            </span>,
+          );
+
+        const chevron = hasDetails ? (
+          <svg
+            className={`w-4 h-4 text-gray-400 dark:text-slate-500 transition-transform duration-200 ${expanded ? "rotate-180" : ""}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M19 9l-7 7-7-7"
+            />
+          </svg>
+        ) : null;
+
+        if (!hasDetails) {
+          return (
+            <div className="flex items-center gap-1.5 flex-wrap">{badges}</div>
+          );
+        }
+
+        return (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggle();
+            }}
+            className="flex items-center gap-1.5 flex-wrap rounded-lg p-0.5 -m-0.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none hover:opacity-80 transition-opacity"
+            {...(expanded
+              ? {
+                  "aria-expanded": true,
+                  "aria-controls": `issue-details-${safeId(projectName)}`,
+                }
+              : { "aria-expanded": false })}
+          >
+            {badges}
+            {chevron}
+          </button>
+        );
+      }
+
+      function issueLogsHref(jobName, jobNamespace, projectName, level) {
+        const levels = level >= 50 ? "ERROR,FATAL" : "WARN";
+        return `${BASE}/logs?renovate=${encodeURIComponent(jobName)}&namespace=${encodeURIComponent(jobNamespace)}&project=${encodeURIComponent(projectName)}&levels=${levels}`;
+      }
+
+      // Backend truncates issue messages at 256 bytes and appends "…". Older CRD-stored
+      // messages predating that change lack the suffix, so render one when the length
+      // indicates truncation and none is present.
+      const ISSUE_MESSAGE_LIMIT = 256;
+      function displayIssueMessage(msg) {
+        if (!msg) return "";
+        if (msg.endsWith("…")) return msg;
+        if (msg.length >= ISSUE_MESSAGE_LIMIT) return msg + "…";
+        return msg;
+      }
+
+      function IssueDetailRow({
+        logIssues,
+        projectName,
+        jobName,
+        jobNamespace,
+      }) {
+        if (!logIssues || !logIssues.issues || logIssues.issues.length === 0)
+          return null;
+
+        return (
+          <tr id={`issue-details-${safeId(projectName)}`}>
+            <td colSpan="7" className="px-6 py-0">
+              <div className="py-3 pl-4 border-l-2 border-amber-300 dark:border-amber-600 max-h-64 overflow-y-auto">
+                <div className="space-y-1.5">
+                  {logIssues.issues.map((issue, idx) => (
+                    <a
+                      key={idx}
+                      href={issueLogsHref(
+                        jobName,
+                        jobNamespace,
+                        projectName,
+                        issue.level,
+                      )}
+                      target="_blank"
+                      rel="noopener"
+                      className="group flex items-start gap-2 text-sm rounded-md hover:bg-amber-50 dark:hover:bg-amber-900/20 -mx-1 px-1 py-0.5 transition-colors"
+                      title="Open full message in logs"
+                    >
+                      <span
+                        className={`flex-shrink-0 ${issueLevelBadgeClass(issue.level)}`}
+                      >
+                        {issue.level >= 50 ? "error" : "warn"}
+                      </span>
+                      <span className="text-gray-700 dark:text-slate-300 break-all">
+                        {displayIssueMessage(issue.message)}
+                        <span className="inline-flex items-center gap-0.5 ml-1.5 text-primary hover:underline whitespace-nowrap">
+                          View in logs
+                          <svg
+                            className="w-3 h-3"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                            />
+                          </svg>
+                        </span>
+                      </span>
+                    </a>
+                  ))}
+                  {logIssues.truncated && (
+                    <div className="text-xs text-gray-400 dark:text-slate-500 italic mt-1">
+                      Some issues omitted (list truncated)
+                    </div>
+                  )}
+                </div>
+              </div>
+            </td>
+          </tr>
+        );
+      }
+
+      function ActionButton({ project, onTrigger, onCancel, width }) {
+        const isRunning = project.status === "running";
+        const isScheduled = project.status === "scheduled";
+        const isPrioritized = isScheduled && (project.priority || 0) > 0;
+        const isTriggering = !!project.triggering;
+        const isCancelling = !!project.cancelling;
+
+        if (isRunning) {
+          return (
+            <button
+              onClick={onCancel}
+              disabled={isCancelling}
+              className={`bg-error hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-lg font-semibold text-[0.813rem] shadow-sm hover:shadow-md transition-all ${width || ""}`}
+              aria-label={
+                isCancelling
+                  ? "Cancelling renovate"
+                  : `Cancel renovate for ${project.name}`
+              }
+            >
+              <span>{isCancelling ? "Cancelling..." : "Cancel"}</span>
+            </button>
+          );
+        }
+
+        const label = isTriggering
+          ? "Triggering..."
+          : isPrioritized
+            ? "Prioritized"
+            : isScheduled
+              ? "Prioritize"
+              : "Trigger";
+
+        return (
+          <button
+            onClick={onTrigger}
+            disabled={isTriggering || isPrioritized}
+            className={`bg-primary hover:bg-primary-hover disabled:opacity-60 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-lg font-semibold text-[0.813rem] shadow-sm hover:shadow-md transition-all ${width || ""}`}
+            aria-label={
+              isTriggering
+                ? "Triggering renovate"
+                : isPrioritized
+                  ? `Renovate already prioritized for ${project.name}`
+                  : isScheduled
+                    ? `Prioritize renovate for ${project.name}`
+                    : `Trigger renovate for ${project.name}`
+            }
+          >
+            <span className="inline-flex items-center justify-center gap-1">
+              {isPrioritized && (
+                <svg
+                  className="w-3 h-3"
+                  fill="currentColor"
+                  viewBox="0 0 20 20"
+                  aria-hidden="true"
+                >
+                  <path
+                    fillRule="evenodd"
+                    d="M10 3a1 1 0 01.707.293l5 5a1 1 0 01-1.414 1.414L11 6.414V16a1 1 0 11-2 0V6.414L5.707 9.707a1 1 0 01-1.414-1.414l5-5A1 1 0 0110 3z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              )}
+              {label}
+            </span>
+          </button>
+        );
+      }
+
+      function JobCard({
+        job,
+        onRunDiscovery,
+        onTriggerRenovate,
+        onTriggerAllRenovate,
+        onCancelRenovate,
+        onSaveExecutionOptions,
+      }) {
+        const [open, setOpen] = useState(true);
+        const [sortConfig, setSortConfig] = useState({
+          key: "status",
+          direction: "asc",
+        });
+        const STATUS_FILTERS = ["Onboarding Closed", "Disabled", "No Config"];
+        const jobKey = `${job.namespace}/${job.name}`;
+        const [hiddenStatuses, setHiddenStatuses] = useState(() => {
+          try {
+            const stored = JSON.parse(
+              localStorage.getItem(`hiddenStatuses:${jobKey}`) || "[]",
+            );
+            return Array.isArray(stored) ? stored : [];
+          } catch {
+            return [];
+          }
+        });
+        const toggleStatusFilter = (status) => {
+          setHiddenStatuses((prev) => {
+            const next = prev.includes(status)
+              ? prev.filter((s) => s !== status)
+              : [...prev, status];
+            try {
+              localStorage.setItem(
+                `hiddenStatuses:${jobKey}`,
+                JSON.stringify(next),
+              );
+            } catch {}
+            return next;
+          });
+        };
+        const [hideNoPRs, setHideNoPRs] = useState(() => {
+          try {
+            return localStorage.getItem(`hideNoPRs:${jobKey}`) === "true";
+          } catch {
+            return false;
+          }
+        });
+        const toggleHideNoPRs = () =>
+          setHideNoPRs((prev) => {
+            const next = !prev;
+            try {
+              localStorage.setItem(`hideNoPRs:${jobKey}`, String(next));
+            } catch {}
+            return next;
+          });
+        const [hideNoIssues, setHideNoIssues] = useState(() => {
+          try {
+            return localStorage.getItem(`hideNoIssues:${jobKey}`) === "true";
+          } catch {
+            return false;
+          }
+        });
+        const toggleHideNoIssues = () =>
+          setHideNoIssues((prev) => {
+            const next = !prev;
+            try {
+              localStorage.setItem(`hideNoIssues:${jobKey}`, String(next));
+            } catch {}
+            return next;
+          });
+        const sortedProjects = useMemo(() => {
+          let sorted = getSortedProjects(job.projects, sortConfig);
+          if (hiddenStatuses.length > 0) {
+            sorted = sorted.filter(
+              (p) => !hiddenStatuses.includes(p.renovateResultStatus),
+            );
+          }
+          if (hideNoPRs) {
+            sorted = sorted.filter((p) => {
+              const pa = p.prActivity;
+              return (
+                pa &&
+                (pa.created || 0) +
+                  (pa.updated || 0) +
+                  (pa.unchanged || 0) +
+                  (pa.automerged || 0) >
+                  0
+              );
+            });
+          }
+          if (hideNoIssues) {
+            sorted = sorted.filter(
+              (p) =>
+                p.logIssues &&
+                (p.logIssues.warnCount > 0 || p.logIssues.errorCount > 0),
+            );
+          }
+          return sorted;
+        }, [job.projects, sortConfig, hiddenStatuses, hideNoPRs, hideNoIssues]);
+        const statusCounts = useMemo(() => {
+          const counts = {};
+          for (const s of STATUS_FILTERS) counts[s] = 0;
+          for (const p of job.projects || []) {
+            if (STATUS_FILTERS.includes(p.renovateResultStatus))
+              counts[p.renovateResultStatus]++;
+          }
+          return counts;
+        }, [job.projects]);
+        const [expandedProjects, setExpandedProjects] = useState(
+          () => new Set(),
+        );
+        const toggleProjectExpanded = (name) => {
+          setExpandedProjects((prev) => {
+            const next = new Set(prev);
+            if (next.has(name)) {
+              next.delete(name);
+            } else {
+              next.add(name);
+            }
+            return next;
+          });
+        };
+        const [expandedIssues, setExpandedIssues] = useState(() => new Set());
+        const toggleIssueExpanded = (name) => {
+          setExpandedIssues((prev) => {
+            const next = new Set(prev);
+            if (next.has(name)) {
+              next.delete(name);
+            } else {
+              next.add(name);
+            }
+            return next;
+          });
+        };
+        const [showOptions, setShowOptions] = useState(false);
+        const [optionsPos, setOptionsPos] = useState({ top: 0, right: 0 });
+        const optionsBtnRef = useRef(null);
+        const [debugOption, setDebugOption] = useState(
+          job.executionOptions?.debug ?? false,
+        );
+
+        const getBadgeClass = (status) => {
+          const base =
+            "inline-flex items-center rounded-full px-3 py-1 text-sm font-medium whitespace-nowrap";
+          switch (status) {
+            case "scheduled":
+              return `${base} bg-warning/10 text-warning`;
+            case "running":
+              return `${base} bg-primary/10 text-primary`;
+            case "completed":
+              return `${base} bg-success/10 text-success`;
+            case "failed":
+              return `${base} bg-error/10 text-error`;
+            case "cancelled":
+              return `${base} bg-gray-200 text-gray-600 dark:bg-slate-700 dark:text-slate-300`;
+            default:
+              return `${base} bg-primary/10 text-primary`;
+          }
+        };
+
+        const handleSort = (key) => {
+          let direction = "asc";
+          if (sortConfig.key === key && sortConfig.direction === "asc") {
+            direction = "desc";
+          }
+          setSortConfig({ key, direction });
+        };
+
+        const SortIcon = ({ columnKey }) => {
+          if (sortConfig.key !== columnKey) {
+            return (
+              <svg
+                className="w-4 h-4 text-gray-400"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"
+                />
+              </svg>
+            );
+          }
+
+          return sortConfig.direction === "asc" ? (
+            <svg
+              className="w-4 h-4 text-primary"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M5 15l7-7 7 7"
+              />
+            </svg>
+          ) : (
+            <svg
+              className="w-4 h-4 text-primary"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M19 9l-7 7-7-7"
+              />
+            </svg>
+          );
+        };
+
+        return (
+          <div className="relative bg-white dark:bg-slate-800 rounded-lg overflow-hidden border border-gray-200 dark:border-slate-700 shadow-sm hover:shadow-md transition-all duration-200">
+            <div
+              className="flex flex-col gap-3 sm:gap-4 p-3 sm:p-4 lg:p-6 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors"
+              onClick={() => setOpen(!open)}
+            >
+              {/* Title Section */}
+              <div className="flex items-center gap-3 min-w-0">
+                <button
+                  className={`transform transition-transform duration-200 flex-shrink-0 ${
+                    open ? "rotate-90" : ""
+                  }`}
+                  aria-label={
+                    open ? "Collapse job details" : "Expand job details"
+                  }
+                  aria-hidden="true"
+                >
+                  <svg
+                    className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500 dark:text-slate-400"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M9 5l7 7-7 7"
+                    />
+                  </svg>
+                </button>
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-base sm:text-lg lg:text-xl font-bold text-gray-900 dark:text-slate-100 truncate">
+                    {job.name}
+                  </h2>
+                  <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">
+                    Namespace:{" "}
+                    <span className="font-mono">{job.namespace}</span>
+                  </p>
+                </div>
+                <div
+                  className="relative flex-shrink-0"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <button
+                    ref={optionsBtnRef}
+                    onClick={() => {
+                      if (!showOptions && optionsBtnRef.current) {
+                        const rect =
+                          optionsBtnRef.current.getBoundingClientRect();
+                        setOptionsPos({
+                          top: rect.bottom + 4,
+                          right: window.innerWidth - rect.right,
+                        });
+                      }
+                      setShowOptions(!showOptions);
+                    }}
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
+                    aria-label="Execution options"
+                  >
+                    <svg
+                      className="w-4 h-4 sm:w-5 sm:h-5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+                      />
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                      />
+                    </svg>
+                  </button>
+                  {showOptions && (
+                    <>
+                      <div
+                        className="fixed inset-0 z-10"
+                        onClick={() => setShowOptions(false)}
+                      />
+                      <div
+                        style={{ top: optionsPos.top, right: optionsPos.right }}
+                        className="fixed z-50 w-60 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-gray-200 dark:border-slate-700 p-4"
+                      >
+                        <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-3">
+                          Execution Options
+                        </h3>
+                        <label className="flex items-center gap-2 mb-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={debugOption}
+                            onChange={(e) => setDebugOption(e.target.checked)}
+                            className="w-4 h-4 rounded border-gray-300 accent-primary"
+                          />
+                          <span className="text-sm text-gray-700 dark:text-slate-300">
+                            Debug mode
+                          </span>
+                        </label>
+                        <button
+                          onClick={() => {
+                            onSaveExecutionOptions(job, { debug: debugOption });
+                            setShowOptions(false);
+                          }}
+                          className="w-full bg-primary hover:bg-primary-hover text-white px-3 py-2 rounded-lg text-sm font-semibold transition-colors"
+                        >
+                          Save
+                        </button>
+                        <div className="border-t border-gray-200 dark:border-slate-700 mt-3 pt-3">
+                          <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-2">
+                            Hide Projects
+                          </h3>
+                          {STATUS_FILTERS.map((status) => (
+                            <label
+                              key={status}
+                              className="flex items-center gap-2 mb-1.5 cursor-pointer"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={hiddenStatuses.includes(status)}
+                                onChange={() => toggleStatusFilter(status)}
+                                className="w-4 h-4 rounded border-gray-300 accent-primary"
+                              />
+                              <span className="text-sm text-gray-700 dark:text-slate-300">
+                                {status}
+                                {statusCounts[status] > 0
+                                  ? ` (${statusCounts[status]})`
+                                  : ""}
+                              </span>
+                            </label>
+                          ))}
+                          <label className="flex items-center gap-2 mb-1.5 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={hideNoPRs}
+                              onChange={toggleHideNoPRs}
+                              className="w-4 h-4 rounded border-gray-300 accent-primary"
+                            />
+                            <span className="text-sm text-gray-700 dark:text-slate-300">
+                              Without PRs
+                            </span>
+                          </label>
+                          <label className="flex items-center gap-2 mb-1.5 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={hideNoIssues}
+                              onChange={toggleHideNoIssues}
+                              className="w-4 h-4 rounded border-gray-300 accent-primary"
+                            />
+                            <span className="text-sm text-gray-700 dark:text-slate-300">
+                              Without Issues
+                            </span>
+                          </label>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-3 sm:gap-4">
+                <div className="flex items-center gap-2 min-w-0">
+                  <svg
+                    className="w-4 h-4 sm:w-5 sm:h-5 text-primary flex-shrink-0"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                  <span className="text-xs sm:text-sm text-gray-600 dark:text-slate-300 font-medium flex-shrink-0">
+                    Schedule:
+                  </span>
+                  <span className="font-mono text-xs sm:text-sm font-semibold text-gray-900 dark:text-slate-100 truncate">
+                    {job.cronExpression || "Not set"}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2 min-w-0">
+                  <svg
+                    className="w-4 h-4 sm:w-5 sm:h-5 text-primary flex-shrink-0"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M13 10V3L4 14h7v7l9-11h-7z"
+                    />
+                  </svg>
+                  <span className="text-xs sm:text-sm text-gray-600 dark:text-slate-300 font-medium flex-shrink-0">
+                    Next Run:
+                  </span>
+                  {job.nextSchedule ? (
+                    <Countdown nextSchedule={job.nextSchedule} />
+                  ) : (
+                    <span className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">
+                      N/A
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 sm:ml-auto">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRunDiscovery(job);
+                    }}
+                    disabled={job.discoveryRunning}
+                    className="bg-primary hover:bg-primary-hover disabled:opacity-60 disabled:cursor-not-allowed text-white px-3 py-2 sm:px-4 sm:py-2 rounded-lg font-semibold text-xs sm:text-sm shadow-sm hover:shadow-md active:scale-98 transition-all flex items-center justify-center gap-2"
+                    aria-label={
+                      job.discoveryRunning
+                        ? "Discovery running"
+                        : `Run discovery for ${job.name}`
+                    }
+                  >
+                    <svg
+                      className={`w-3 h-3 sm:w-4 sm:h-4 ${
+                        job.discoveryRunning ? "animate-spin" : ""
+                      }`}
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                    <span>
+                      {job.discoveryRunning ? "Running..." : "Run Discovery"}
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onTriggerAllRenovate(job);
+                    }}
+                    disabled={
+                      job.triggeringAll ||
+                      !job.projects ||
+                      job.projects.length === 0
+                    }
+                    className="bg-primary hover:bg-primary-hover disabled:opacity-60 disabled:cursor-not-allowed text-white px-3 py-2 sm:px-4 sm:py-2 rounded-lg font-semibold text-xs sm:text-sm shadow-sm hover:shadow-md active:scale-98 transition-all flex items-center justify-center gap-2"
+                    aria-label={
+                      job.triggeringAll
+                        ? "Triggering all projects"
+                        : `Trigger all projects for ${job.name}`
+                    }
+                  >
+                    <svg
+                      className={`w-3 h-3 sm:w-4 sm:h-4 ${
+                        job.triggeringAll ? "animate-spin" : ""
+                      }`}
+                      fill="currentColor"
+                      viewBox="0 0 20 20"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                    <span>
+                      {job.triggeringAll ? "Triggering..." : "Trigger All"}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {open && (
+              <div className="border-t border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/50">
+                <div className="hidden lg:block overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-white dark:bg-slate-700 border-b border-gray-200 dark:border-slate-600">
+                      <tr>
+                        <th
+                          className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-600 select-none"
+                          onClick={() => handleSort("name")}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span>Project</span>
+                            <SortIcon columnKey="name" />
+                          </div>
+                        </th>
+                        <th
+                          className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-600 select-none"
+                          onClick={() => handleSort("status")}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span>Status</span>
+                            <SortIcon columnKey="status" />
+                          </div>
+                        </th>
+                        <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider select-none">
+                          Activity
+                        </th>
+                        <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider select-none">
+                          Issues
+                        </th>
+                        <th
+                          className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-600 select-none"
+                          onClick={() => handleSort("lastRun")}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span>Last Run</span>
+                            <SortIcon columnKey="lastRun" />
+                          </div>
+                        </th>
+                        <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider">
+                          Links
+                        </th>
+                        <th className="px-3 xl:px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider">
+                          Actions
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-slate-700">
+                      {job.projects && job.projects.length > 0 ? (
+                        sortedProjects.map((project) => {
+                          const ProjectRow = () => {
+                            const {
+                              containerRef,
+                              tooltipProps,
+                              tooltipElement,
+                            } = useTooltip(project);
+
+                            return (
+                              <>
+                                <tr
+                                  ref={containerRef}
+                                  {...tooltipProps}
+                                  className={`hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors ${project.renovateResultStatus && project.renovateResultStatus !== "done" ? "bg-amber-50/60 dark:bg-amber-900/10 shadow-[inset_4px_0_0_0_rgb(251_191_36)] dark:shadow-[inset_4px_0_0_0_rgb(245_158_11)]" : ""}`}
+                                >
+                                  <td className="px-3 xl:px-6 py-4">
+                                    <div className="flex items-center gap-2 w-full justify-between">
+                                      <span
+                                        className={`font-medium min-w-0 break-words ${project.renovateResultStatus && project.renovateResultStatus !== "done" ? "text-gray-500 dark:text-slate-400" : "text-gray-900 dark:text-slate-100"}`}
+                                      >
+                                        {project.name}
+                                      </span>
+                                      {project.renovateResultStatus &&
+                                        project.renovateResultStatus !==
+                                          "done" && (
+                                          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap shrink-0 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 ring-1 ring-amber-300 dark:ring-amber-700">
+                                            {project.renovateResultStatus}
+                                          </span>
+                                        )}
+                                    </div>
+                                  </td>
+                                  <td className="px-3 xl:px-6 py-4">
+                                    <span
+                                      className={getBadgeClass(project.status)}
+                                    >
+                                      {project.status || "-"}
+                                    </span>
+                                  </td>
+                                  <td
+                                    className="px-3 xl:px-6 py-4"
+                                    data-no-tooltip="true"
+                                  >
+                                    <PRActivityBadges
+                                      prActivity={project.prActivity}
+                                      expanded={expandedProjects.has(
+                                        project.name,
+                                      )}
+                                      onToggle={() =>
+                                        toggleProjectExpanded(project.name)
+                                      }
+                                      projectName={project.name}
+                                    />
+                                  </td>
+                                  <td
+                                    className="px-3 xl:px-6 py-4"
+                                    data-no-tooltip="true"
+                                  >
+                                    <IssuesBadges
+                                      logIssues={project.logIssues}
+                                      expanded={expandedIssues.has(
+                                        project.name,
+                                      )}
+                                      onToggle={() =>
+                                        toggleIssueExpanded(project.name)
+                                      }
+                                      projectName={project.name}
+                                    />
+                                  </td>
+                                  <td className="px-3 xl:px-6 py-4">
+                                    <span className="text-sm text-gray-600 dark:text-slate-300">
+                                      {project.lastRun
+                                        ? formatTimeAgo(project.lastRun)
+                                        : "Never"}
+                                    </span>
+                                  </td>
+                                  <td
+                                    className="px-3 xl:px-6 py-4"
+                                    data-no-tooltip="true"
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      {(() => {
+                                        const dashboardUrl = buildDashboardUrl(
+                                          job.platform,
+                                          job.platformEndpoint,
+                                          project.name,
+                                        );
+                                        return dashboardUrl ? (
+                                          <a
+                                            href={dashboardUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex items-center gap-1 text-sm text-primary hover:text-primary-hover font-medium"
+                                            aria-label={`View Dependency Dashboard for ${project.name}`}
+                                            title={`Dependency Dashboard for ${project.name}`}
+                                          >
+                                            <svg
+                                              className="w-3.5 h-3.5"
+                                              fill="none"
+                                              stroke="currentColor"
+                                              viewBox="0 0 24 24"
+                                              aria-hidden="true"
+                                            >
+                                              <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                strokeWidth={2}
+                                                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"
+                                              />
+                                            </svg>
+                                          </a>
+                                        ) : null;
+                                      })()}
+                                      {(() => {
+                                        const prUrl = buildPRUrl(
+                                          job.platform,
+                                          job.platformEndpoint,
+                                          project.name,
+                                        );
+                                        return prUrl ? (
+                                          <a
+                                            href={prUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex items-center gap-1 text-sm text-primary hover:text-primary-hover font-medium"
+                                            aria-label={`View open PRs/MRs for ${project.name}`}
+                                            title={`Open PRs/MRs for ${project.name}`}
+                                          >
+                                            <svg
+                                              className="w-3.5 h-3.5"
+                                              fill="none"
+                                              stroke="currentColor"
+                                              viewBox="0 0 24 24"
+                                              aria-hidden="true"
+                                            >
+                                              <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                strokeWidth={2}
+                                                d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                                              />
+                                            </svg>
+                                          </a>
+                                        ) : null;
+                                      })()}
+                                      {(() => {
+                                        const prUrl = buildPRUrl(
+                                          job.platform,
+                                          job.platformEndpoint,
+                                          project.name,
+                                        );
+                                        const dashboardUrl = buildDashboardUrl(
+                                          job.platform,
+                                          job.platformEndpoint,
+                                          project.name,
+                                        );
+                                        return !prUrl && !dashboardUrl ? (
+                                          <span className="text-gray-400 dark:text-slate-500 text-sm">
+                                            -
+                                          </span>
+                                        ) : null;
+                                      })()}
+                                    </div>
+                                  </td>
+                                  <td
+                                    className="px-3 xl:px-6 py-4 text-right"
+                                    data-no-tooltip="true"
+                                  >
+                                    <div className="flex items-center justify-end gap-2">
+                                      <ActionButton
+                                        project={project}
+                                        onTrigger={() =>
+                                          onTriggerRenovate(job, project)
+                                        }
+                                        onCancel={() =>
+                                          onCancelRenovate(job, project)
+                                        }
+                                        width="w-[100px]"
+                                      />
+                                      <a
+                                        href={`${BASE}/logs?renovate=${encodeURIComponent(
+                                          job.name,
+                                        )}&namespace=${encodeURIComponent(
+                                          job.namespace,
+                                        )}&project=${encodeURIComponent(
+                                          project.name,
+                                        )}`}
+                                        target="_blank"
+                                        className="bg-gray-600 hover:bg-gray-700 text-white px-3 py-1.5 rounded-lg font-semibold text-[0.813rem] shadow-sm hover:shadow-md transition-all inline-block min-w-[60px] text-center"
+                                        aria-label={`View logs for ${project.name}`}
+                                      >
+                                        Logs
+                                      </a>
+                                    </div>
+                                  </td>
+                                </tr>
+                                {expandedProjects.has(project.name) &&
+                                  project.prActivity && (
+                                    <PRDetailRow
+                                      prActivity={project.prActivity}
+                                      projectName={project.name}
+                                      platform={job.platform}
+                                      platformEndpoint={job.platformEndpoint}
+                                    />
+                                  )}
+                                {expandedIssues.has(project.name) &&
+                                  project.logIssues && (
+                                    <IssueDetailRow
+                                      logIssues={project.logIssues}
+                                      projectName={project.name}
+                                      jobName={job.name}
+                                      jobNamespace={job.namespace}
+                                    />
+                                  )}
+                                {tooltipElement}
+                              </>
+                            );
+                          };
+
+                          return <ProjectRow key={project.name} />;
+                        })
+                      ) : (
+                        <tr>
+                          <td
+                            colSpan="7"
+                            className="px-6 py-8 text-center text-gray-500 dark:text-slate-400"
+                          >
+                            No projects found. Run discovery to find projects.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="lg:hidden bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-slate-700">
+                  {job.projects && job.projects.length > 0 ? (
+                    sortedProjects.map((project) => {
+                      const ProjectCard = () => {
+                        const { containerRef, tooltipProps, tooltipElement } =
+                          useTooltip(project);
+
+                        return (
+                          <>
+                            <div
+                              ref={containerRef}
+                              {...tooltipProps}
+                              className={`p-4 space-y-3 ${project.renovateResultStatus && project.renovateResultStatus !== "done" ? "bg-amber-50/60 dark:bg-amber-900/10 border-l-4 border-amber-400 dark:border-amber-500" : ""}`}
+                            >
+                              <div className="flex items-start justify-between">
+                                <div>
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <p
+                                      className={`font-medium ${project.renovateResultStatus && project.renovateResultStatus !== "done" ? "text-gray-500 dark:text-slate-400" : "text-gray-900 dark:text-slate-100"}`}
+                                    >
+                                      {project.name}
+                                    </p>
+                                    {project.renovateResultStatus &&
+                                      project.renovateResultStatus !==
+                                        "done" && (
+                                        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap shrink-0 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 ring-1 ring-amber-300 dark:ring-amber-700">
+                                          {project.renovateResultStatus}
+                                        </span>
+                                      )}
+                                  </div>
+                                  <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
+                                    Last run:{" "}
+                                    {project.lastRun
+                                      ? formatTimeAgo(project.lastRun)
+                                      : "Never"}
+                                  </p>
+                                </div>
+                                <span
+                                  className={`ml-2 ${getBadgeClass(project.status)}`}
+                                >
+                                  {project.status || "-"}
+                                </span>
+                              </div>
+                              {/* PR Activity section */}
+                              {project.prActivity?.prs?.length > 0 && (
+                                <div
+                                  className="flex items-center gap-2"
+                                  data-no-tooltip="true"
+                                >
+                                  <span className="text-xs text-gray-500 dark:text-slate-400 font-medium">
+                                    Activity:
+                                  </span>
+                                  <PRActivityBadges
+                                    prActivity={project.prActivity}
+                                    expanded={expandedProjects.has(
+                                      project.name,
+                                    )}
+                                    onToggle={() =>
+                                      toggleProjectExpanded(project.name)
+                                    }
+                                    projectName={project.name}
+                                  />
+                                </div>
+                              )}
+                              {expandedProjects.has(project.name) &&
+                                project.prActivity &&
+                                project.prActivity.prs &&
+                                project.prActivity.prs.length > 0 && (
+                                  <div
+                                    id={`pr-details-${safeId(project.name)}`}
+                                    className="pl-2 border-l-2 border-gray-200 dark:border-slate-600 max-h-48 overflow-y-auto"
+                                  >
+                                    <div className="space-y-1.5">
+                                      {project.prActivity.prs.map((pr, idx) => {
+                                        const actionClass = prActionBadgeClass(
+                                          pr.action,
+                                        );
+                                        const prUrl = buildSinglePRUrl(
+                                          job.platform,
+                                          job.platformEndpoint,
+                                          project.name,
+                                          pr.number,
+                                        );
+                                        return (
+                                          <div
+                                            key={idx}
+                                            className="flex items-center gap-2 text-sm"
+                                          >
+                                            <span className={actionClass}>
+                                              {pr.action}
+                                            </span>
+                                            {prUrl ? (
+                                              <a
+                                                href={prUrl}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-primary hover:text-primary-hover hover:underline truncate text-xs"
+                                                title={pr.title || prUrl}
+                                              >
+                                                {pr.title || prUrl}
+                                              </a>
+                                            ) : (
+                                              <span
+                                                className="text-gray-700 dark:text-slate-300 truncate text-xs"
+                                                title={pr.title}
+                                              >
+                                                {pr.title || "Untitled PR"}
+                                              </span>
+                                            )}
+                                            {pr.number && prUrl && (
+                                              <a
+                                                href={prUrl}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-gray-400 dark:text-slate-500 hover:text-primary hover:dark:text-primary-hover text-xs flex-shrink-0"
+                                              >
+                                                #{pr.number}
+                                              </a>
+                                            )}
+                                            {pr.number && !prUrl && (
+                                              <span className="text-gray-400 dark:text-slate-500 text-xs flex-shrink-0">
+                                                #{pr.number}
+                                              </span>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                      {project.prActivity.truncated && (
+                                        <div className="text-xs text-gray-400 dark:text-slate-500 italic mt-1">
+                                          Some PRs omitted (list truncated)
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                              {/* Issues section */}
+                              {(project.logIssues?.warnCount > 0 ||
+                                project.logIssues?.errorCount > 0) && (
+                                <div
+                                  className="flex items-center gap-2"
+                                  data-no-tooltip="true"
+                                >
+                                  <span className="text-xs text-gray-500 dark:text-slate-400 font-medium">
+                                    Issues:
+                                  </span>
+                                  <IssuesBadges
+                                    logIssues={project.logIssues}
+                                    expanded={expandedIssues.has(project.name)}
+                                    onToggle={() =>
+                                      toggleIssueExpanded(project.name)
+                                    }
+                                    projectName={project.name}
+                                  />
+                                </div>
+                              )}
+                              {expandedIssues.has(project.name) &&
+                                project.logIssues &&
+                                project.logIssues.issues &&
+                                project.logIssues.issues.length > 0 && (
+                                  <div
+                                    id={`issue-details-${safeId(project.name)}`}
+                                    className="pl-2 border-l-2 border-amber-300 dark:border-amber-600 max-h-48 overflow-y-auto"
+                                  >
+                                    <div className="space-y-1.5">
+                                      {project.logIssues.issues.map(
+                                        (issue, idx) => (
+                                          <a
+                                            key={idx}
+                                            href={issueLogsHref(
+                                              job.name,
+                                              job.namespace,
+                                              project.name,
+                                              issue.level,
+                                            )}
+                                            target="_blank"
+                                            rel="noopener"
+                                            className="group flex items-start gap-2 text-sm rounded-md hover:bg-amber-50 dark:hover:bg-amber-900/20 -mx-1 px-1 py-0.5 transition-colors"
+                                            title="Open full message in logs"
+                                          >
+                                            <span
+                                              className={`flex-shrink-0 ${issueLevelBadgeClass(issue.level)}`}
+                                            >
+                                              {issue.level >= 50
+                                                ? "error"
+                                                : "warn"}
+                                            </span>
+                                            <span className="text-gray-700 dark:text-slate-300 break-all text-xs">
+                                              {displayIssueMessage(
+                                                issue.message,
+                                              )}
+                                              <span className="inline-flex items-center gap-0.5 ml-1.5 text-primary hover:underline whitespace-nowrap">
+                                                View in logs
+                                                <svg
+                                                  className="w-3 h-3"
+                                                  fill="none"
+                                                  stroke="currentColor"
+                                                  viewBox="0 0 24 24"
+                                                >
+                                                  <path
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    strokeWidth={2}
+                                                    d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                                                  />
+                                                </svg>
+                                              </span>
+                                            </span>
+                                          </a>
+                                        ),
+                                      )}
+                                      {project.logIssues.truncated && (
+                                        <div className="text-xs text-gray-400 dark:text-slate-500 italic mt-1">
+                                          Some issues omitted (list truncated)
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                              <div
+                                className="flex gap-2 flex-wrap"
+                                data-no-tooltip="true"
+                              >
+                                <ActionButton
+                                  project={project}
+                                  onTrigger={() =>
+                                    onTriggerRenovate(job, project)
+                                  }
+                                  onCancel={() =>
+                                    onCancelRenovate(job, project)
+                                  }
+                                  width="w-[110px]"
+                                />
+                                <a
+                                  href={`${BASE}/logs?renovate=${encodeURIComponent(
+                                    job.name,
+                                  )}&namespace=${encodeURIComponent(
+                                    job.namespace,
+                                  )}&project=${encodeURIComponent(project.name)}`}
+                                  target="_blank"
+                                  className="bg-gray-600 hover:bg-gray-700 text-white px-3 py-1.5 rounded-lg font-semibold text-[0.813rem] shadow-sm hover:shadow-md transition-all inline-block w-[70px] text-center"
+                                  aria-label={`View logs for ${project.name}`}
+                                >
+                                  Logs
+                                </a>
+                                {(() => {
+                                  const dashboardUrl = buildDashboardUrl(
+                                    job.platform,
+                                    job.platformEndpoint,
+                                    project.name,
+                                  );
+                                  return dashboardUrl ? (
+                                    <a
+                                      href={dashboardUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-200 px-3 py-1.5 rounded-lg font-semibold text-[0.813rem] shadow-sm hover:shadow-md transition-all"
+                                      aria-label={`View Dependency Dashboard for ${project.name}`}
+                                      title={`Dependency Dashboard for ${project.name}`}
+                                    >
+                                      <svg
+                                        className="w-3.5 h-3.5"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                        aria-hidden="true"
+                                      >
+                                        <path
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          strokeWidth={2}
+                                          d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"
+                                        />
+                                      </svg>
+                                    </a>
+                                  ) : null;
+                                })()}
+                                {(() => {
+                                  const prUrl = buildPRUrl(
+                                    job.platform,
+                                    job.platformEndpoint,
+                                    project.name,
+                                  );
+                                  return prUrl ? (
+                                    <a
+                                      href={prUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-200 px-3 py-1.5 rounded-lg font-semibold text-[0.813rem] shadow-sm hover:shadow-md transition-all"
+                                      aria-label={`View open PRs/MRs for ${project.name}`}
+                                      title={`Open PRs/MRs for ${project.name}`}
+                                    >
+                                      <svg
+                                        className="w-3.5 h-3.5"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                        aria-hidden="true"
+                                      >
+                                        <path
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          strokeWidth={2}
+                                          d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                                        />
+                                      </svg>
+                                    </a>
+                                  ) : null;
+                                })()}
+                              </div>
+                            </div>
+                            {tooltipElement}
+                          </>
+                        );
+                      };
+
+                      return <ProjectCard key={project.name} />;
+                    })
+                  ) : (
+                    <div className="p-8 text-center text-gray-500 dark:text-slate-400">
+                      No projects found. Run discovery to find projects.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      window.createRoot(document.getElementById("root")).render(<App />);
+    </script>
   </body>
 </html>

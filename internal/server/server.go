@@ -15,12 +15,12 @@ import (
 
 	"github.com/gorilla/mux"
 
-	"github.com/oluf-tech/renovate-docker-operator/config"
-	"github.com/oluf-tech/renovate-docker-operator/internal/api"
-	"github.com/oluf-tech/renovate-docker-operator/internal/discovery"
-	"github.com/oluf-tech/renovate-docker-operator/internal/scheduler"
-	"github.com/oluf-tech/renovate-docker-operator/internal/statestore"
-	"github.com/oluf-tech/renovate-docker-operator/internal/webhook"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/config"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/api"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/discovery"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/scheduler"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/statestore"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/webhook"
 )
 
 // Server is the unified HTTP server that handles UI, webhook, health and API.
@@ -401,6 +401,10 @@ func (s *Server) registerUIRoutes(router *mux.Router) {
 		path := r.URL.Path
 		if path == "/" || path == "/index.html" {
 			s.serveHTML(w, "./static/index.html")
+			return
+		}
+		if path == "/logs" || path == "/logs.html" {
+			s.serveHTML(w, "./static/pages/logs.html")
 			return
 		}
 		// Try to serve static file

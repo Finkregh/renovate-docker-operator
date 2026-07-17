@@ -1,4 +1,4 @@
-module github.com/oluf-tech/renovate-docker-operator
+module git.h.oluflorenzen.de/finkregh/renovate-docker-operator
 
 go 1.25.0
 
