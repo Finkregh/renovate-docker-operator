@@ -23,6 +23,7 @@ import (
 	"github.com/docker/docker/pkg/stdcopy"
 
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/api"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/parser"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/statestore"
 )
 
@@ -505,7 +506,15 @@ func (e *DockerExecutor) handleContainerExit(ctx context.Context, containerID st
 	if err != nil {
 		e.logger.Warn("failed to collect container logs", "container", containerID, "error", err)
 	}
-	_ = logs // Logs are available via docker logs API when needed
+	// Store and parse logs
+	var parseResult *parser.LogParseResult
+	if len(logs) > 0 && jobName != "" {
+		jobID := statestore.RenovateJobIdentifier{Name: jobName}
+		if err := e.store.StoreProjectLogs(ctx, jobID, project, logs); err != nil {
+			e.logger.Error("failed to store project logs", "project", project, "error", err)
+		}
+		parseResult = parser.ParseRenovateLogs(string(logs))
+	}
 
 	// Determine final status
 	status := api.JobStatusCompleted
@@ -523,10 +532,16 @@ func (e *DockerExecutor) handleContainerExit(ctx context.Context, containerID st
 	// Update state store
 	if jobName != "" {
 		jobID := statestore.RenovateJobIdentifier{Name: jobName}
-		if err := e.store.UpdateProjectStatus(ctx, project, jobID, &statestore.RenovateStatusUpdate{
+		statusUpdate := &statestore.RenovateStatusUpdate{
 			Status:   status,
 			Duration: duration,
-		}); err != nil {
+		}
+		if parseResult != nil {
+			statusUpdate.RenovateResultStatus = parseResult.RenovateResultStatus
+			statusUpdate.PRActivity = parseResult.PRActivity
+			statusUpdate.LogIssues = parseResult.LogIssues
+		}
+		if err := e.store.UpdateProjectStatus(ctx, project, jobID, statusUpdate); err != nil {
 			e.logger.Error("failed to update project status after exit",
 				"project", project, "error", err)
 		}
@@ -727,13 +742,50 @@ func (e *DockerExecutor) getContainerLogs(ctx context.Context, containerID strin
 	}
 	defer func() { _ = reader.Close() }()
 
-	// Docker multiplexes stdout/stderr with 8-byte frame headers when Tty is
-	// not set. stdcopy.StdCopy demultiplexes the stream into separate writers.
-	var stdout, stderr bytes.Buffer
-	if _, err := stdcopy.StdCopy(&stdout, &stderr, reader); err != nil {
+	// Read the full stream into memory.
+	raw, err := io.ReadAll(reader)
+	if err != nil {
 		return nil, err
 	}
-	return stdout.Bytes(), nil
+
+	// Docker multiplexes stdout/stderr with 8-byte frame headers when Tty is
+	// not set. Podman with json-file log driver returns raw text.
+	// Detect multiplexed format by checking the first 8 bytes.
+	if isDockerMultiplexed(raw) {
+		var stdout, stderr bytes.Buffer
+		if _, err := stdcopy.StdCopy(&stdout, &stderr, bytes.NewReader(raw)); err != nil {
+			return nil, err
+		}
+		return stdout.Bytes(), nil
+	}
+
+	// Raw stream (Podman or TTY mode) — return as-is.
+	return raw, nil
+}
+
+// isDockerMultiplexed checks whether the byte slice starts with a valid Docker
+// stream frame header. The header format is:
+//   - byte 0: stream type (0x01=stdout, 0x02=stderr)
+//   - bytes 1-3: padding (must be 0x00)
+//   - bytes 4-7: big-endian uint32 payload size
+func isDockerMultiplexed(data []byte) bool {
+	if len(data) < 8 {
+		return false
+	}
+	// Stream type must be stdout (1) or stderr (2)
+	if data[0] != 0x01 && data[0] != 0x02 {
+		return false
+	}
+	// Padding bytes must be zero
+	if data[1] != 0x00 || data[2] != 0x00 || data[3] != 0x00 {
+		return false
+	}
+	// Payload length must be reasonable (not exceed total buffer minus header)
+	payloadLen := uint32(data[4])<<24 | uint32(data[5])<<16 | uint32(data[6])<<8 | uint32(data[7])
+	if payloadLen == 0 || payloadLen > uint32(len(data)-8) {
+		return false
+	}
+	return true
 }
 
 // GetRunningContainerID returns the container ID for a running project, if any.
