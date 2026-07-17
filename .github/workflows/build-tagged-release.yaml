@@ -28,7 +28,7 @@ jobs:
           cache: true
 
       - name: Install just
-        uses: https://github.com/extractions/setup-just@e33e0265a09d0d9e33f4d1a10e96956f55c0283e # v4.0.0
+        uses: https://codeberg.org/FelixSchwarz/setup-just@v4.0.0-codeberg
 
       - name: Download dependencies
         run: go mod download
