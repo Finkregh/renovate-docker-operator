@@ -2,6 +2,16 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.3.1](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/compare/53a1a130933a5e73b447dc926e4f2f5d6e67e42b..v0.3.1) - 2026-07-17
+#### Bug Fixes
+- (**deps**) update dependency go to v1.26.5 - ([4bb4d7a](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/4bb4d7a8cf59d08816d313d13f6f677dfbef89e9)) - Renovate Bot
+- (**deps**) update golang docker tag to v1.26 - ([7712f53](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/7712f53f44598e7b55e48f62726537fd6839ea57)) - renovate-forgejo
+- (**deps**) update alpine docker tag to v3.24 - ([86e9c0b](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/86e9c0b82d339e15a6602b3d814074ed2d2df864)) - renovate-forgejo
+#### Build system
+- (**deps**) pin dependencies - ([53a1a13](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/53a1a130933a5e73b447dc926e4f2f5d6e67e42b)) - renovate-forgejo
+
+- - -
+
 ## [v0.3.0](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/compare/d62e39ded0050d472050620cb68b97324438c7db..v0.3.0) - 2026-07-17
 #### Features
 - implement log storage + parsing pipeline - ([d62e39d](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/d62e39ded0050d472050620cb68b97324438c7db)) - Oluf Lorenzen
