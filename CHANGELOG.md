@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [0.1.3](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/compare/176cd99d7734973050f7294ded9a7b4d2153ad04..0.1.3) - 2026-07-17
+#### Continuous Integration
+- properly checkout tag - ([176cd99](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/176cd99d7734973050f7294ded9a7b4d2153ad04)) - Oluf Lorenzen
+
+- - -
+
 ## [0.1.2](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/compare/071a6e46331cd68554cbd368fd15179d90a0e4e6..0.1.2) - 2026-07-17
 #### Continuous Integration
 - dont lint/test in PRs - ([b1599e0](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/b1599e0861a223486ea13e74904d69667ede5a15)) - Oluf Lorenzen
