@@ -2,6 +2,17 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [0.2.0](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/compare/db2053ac14ecfcbb9399f9a09082e9606c185086..0.2.0) - 2026-07-17
+#### Features
+- add push event support to Forgejo webhook handler - ([3165aa0](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/3165aa06bd509572b1f591470dcd176b28d5aefa)) - Oluf Lorenzen
+#### Bug Fixes
+- (**ci**) resolve actions/checkout tag fetch conflict - ([db2053a](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/db2053ac14ecfcbb9399f9a09082e9606c185086)) - Oluf Lorenzen
+- remove deprecated exclude-use-default from golangci-lint config - ([ac3c590](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/ac3c590a8c7f7ce21d1562d423eb871773d14ba9)) - Oluf Lorenzen
+#### Documentation
+- development readme - ([af08080](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/af08080d6ef0e13986013877bf9d4d4dc97fc948)) - Oluf Lorenzen
+
+- - -
+
 ## [0.1.3](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/compare/176cd99d7734973050f7294ded9a7b4d2153ad04..0.1.3) - 2026-07-17
 #### Continuous Integration
 - properly checkout tag - ([176cd99](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/176cd99d7734973050f7294ded9a7b4d2153ad04)) - Oluf Lorenzen
