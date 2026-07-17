@@ -22,6 +22,6 @@ jobs:
           ref: ${{ steps.extract_branch.outputs.branch }}
           token: ${{ secrets.USER_PUSH_TOKEN }}
       - name: Generate release with changelog
-        uses: https://git.h.oluflorenzen.de/finkregh/actions/actions/release-with-cog@release-with-cog-0.4.1
+        uses: https://git.h.oluflorenzen.de/finkregh/actions/actions/release-with-cog@f44f30a0f1b34eaf5faec16f1bd796b3a12c71fe # release-with-cog-0.4.1
         with:
           forgejo_token: ${{ secrets.USER_PUSH_TOKEN }}
