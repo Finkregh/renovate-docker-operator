@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.2.1](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/compare/9f40ef112d8d962a14af36bcfbe214b588f49dea..v0.2.1) - 2026-07-17
+#### Continuous Integration
+- fix just action - ([9f40ef1](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/9f40ef112d8d962a14af36bcfbe214b588f49dea)) - finkregh
+
+- - -
+
 ## [0.2.0](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/compare/db2053ac14ecfcbb9399f9a09082e9606c185086..0.2.0) - 2026-07-17
 #### Features
 - add push event support to Forgejo webhook handler - ([3165aa0](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/3165aa06bd509572b1f591470dcd176b28d5aefa)) - Oluf Lorenzen
