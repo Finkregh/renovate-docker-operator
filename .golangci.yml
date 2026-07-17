@@ -26,5 +26,3 @@ linters:
     - unparam
     - usestdlibvars
 
-issues:
-  exclude-use-default: true
