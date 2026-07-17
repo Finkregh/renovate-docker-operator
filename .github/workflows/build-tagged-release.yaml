@@ -14,18 +14,12 @@ jobs:
       image: node:24-bookworm
 
     steps:
-      - name: Extract branch name
-        shell: bash
-        run: echo "branch=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}" >> "$GITHUB_OUTPUT"
-        id: extract_branch
-
       - name: Checkout
         uses: https://code.forgejo.org/actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v6.0.2
-        id: checkout
         with:
           fetch-tags: true
           fetch-depth: 0
-          ref: ${{ steps.extract_branch.outputs.branch }}
+          ref: ${{ github.ref }}
 
       - name: Setup Go
         uses: https://github.com/actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -68,10 +62,12 @@ jobs:
         run: |
           echo "server_domain=$(echo '${{ github.api_url }}' | awk -F'[/:]' '{print $4}')" >> "$GITHUB_OUTPUT"
 
-      - uses: https://code.forgejo.org/actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v6.0.2
+      - name: Checkout
+        uses: https://code.forgejo.org/actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v6.0.2
         with:
           fetch-tags: true
-          fetch-depth: 10
+          fetch-depth: 0
+          ref: ${{ github.ref }}
 
       - name: Install Docker
         run: |
