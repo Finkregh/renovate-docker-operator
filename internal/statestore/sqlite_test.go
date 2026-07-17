@@ -207,7 +207,7 @@ func TestWebhookTokenValidation(t *testing.T) {
 	body := []byte(`{"ref":"main"}`)
 	mac := hmac.New(sha256.New, []byte("secret1"))
 	mac.Write(body)
-	sig := "sha256=" + fmt.Sprintf("%x", mac.Sum(nil))
+	sig := fmt.Sprintf("%x", mac.Sum(nil))
 
 	valid, err = store.IsWebhookSignatureValid(ctx, jobID, sig, body)
 	if err != nil {
@@ -218,7 +218,7 @@ func TestWebhookTokenValidation(t *testing.T) {
 	}
 
 	// Invalid signature.
-	valid, _ = store.IsWebhookSignatureValid(ctx, jobID, "sha256=bad", body)
+	valid, _ = store.IsWebhookSignatureValid(ctx, jobID, "bad", body)
 	if valid {
 		t.Fatal("expected bad signature to be invalid")
 	}

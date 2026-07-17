@@ -630,7 +630,7 @@ func (e *DockerExecutor) pullImage(ctx context.Context) error {
 		return nil
 	case "if-not-present":
 		// Check if image exists locally
-		_, _, err := e.docker.ImageInspectWithRaw(ctx, e.image)
+		_, err := e.docker.ImageInspect(ctx, e.image)
 		if err == nil {
 			return nil // Already present
 		}
@@ -638,7 +638,7 @@ func (e *DockerExecutor) pullImage(ctx context.Context) error {
 		// Always pull
 	default:
 		// Default to if-not-present behavior
-		_, _, err := e.docker.ImageInspectWithRaw(ctx, e.image)
+		_, err := e.docker.ImageInspect(ctx, e.image)
 		if err == nil {
 			return nil
 		}

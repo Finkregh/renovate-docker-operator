@@ -785,7 +785,7 @@ func scanProjectStatuses(rows *sql.Rows) ([]RenovateProjectStatus, error) {
 func computeHMAC256(message []byte, secret string) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(message)
-	return "sha256=" + fmt.Sprintf("%x", mac.Sum(nil))
+	return fmt.Sprintf("%x", mac.Sum(nil))
 }
 
 func decodeStandardWebhookSigningKey(secret string) ([]byte, bool) {

@@ -3,9 +3,6 @@ package webhook
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -29,6 +26,9 @@ type ForgejoEvent struct {
 	PullRequest *ForgejoPullRequest `json:"pull_request,omitempty"`
 	Issue       *ForgejoIssue       `json:"issue,omitempty"`
 	Repository  ForgejoRepository   `json:"repository"`
+	Ref         string              `json:"ref"`
+	Before      string              `json:"before"`
+	After       string              `json:"after"`
 }
 
 // ForgejoPullRequest contains pull request data from a Forgejo webhook.
@@ -211,7 +211,7 @@ func (h *Handler) findAndAuthenticateJob(ctx context.Context, jobName, project s
 		}
 
 		// Try to authenticate
-		if ok, err := h.authenticate(ctx, id, r, body); err == nil && ok {
+		if h.authenticate(ctx, id, r, body) {
 			return id, nil
 		}
 	}
@@ -220,36 +220,50 @@ func (h *Handler) findAndAuthenticateJob(ctx context.Context, jobName, project s
 }
 
 // authenticate validates the webhook request using available credentials.
-func (h *Handler) authenticate(ctx context.Context, jobID statestore.RenovateJobIdentifier, r *http.Request, body []byte) (bool, error) {
-	// Try X-Forgejo-Signature (HMAC-SHA256)
+// It tries ALL signature methods and returns true if ANY succeeds.
+func (h *Handler) authenticate(ctx context.Context, jobID statestore.RenovateJobIdentifier, r *http.Request, body []byte) bool {
+	// Try X-Forgejo-Signature (raw hex HMAC-SHA256)
 	if sig := r.Header.Get("X-Forgejo-Signature"); sig != "" {
-		return h.store.IsWebhookSignatureValid(ctx, jobID, sig, body)
+		if ok, err := h.store.IsWebhookSignatureValid(ctx, jobID, sig, body); err == nil && ok {
+			return true
+		}
+	}
+
+	// Try X-Gitea-Signature (raw hex HMAC-SHA256)
+	if sig := r.Header.Get("X-Gitea-Signature"); sig != "" {
+		if ok, err := h.store.IsWebhookSignatureValid(ctx, jobID, sig, body); err == nil && ok {
+			return true
+		}
+	}
+
+	// Try X-Hub-Signature-256 (sha256=<hex> format — strip prefix before comparison)
+	if sig := r.Header.Get("X-Hub-Signature-256"); sig != "" {
+		raw := strings.TrimPrefix(sig, "sha256=")
+		if ok, err := h.store.IsWebhookSignatureValid(ctx, jobID, raw, body); err == nil && ok {
+			return true
+		}
 	}
 
 	// Try Authorization header / Bearer token
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		authHeader = r.Header.Get("X-Gitlab-Token")
-	}
-	if authHeader != "" {
+	if authHeader := r.Header.Get("Authorization"); authHeader != "" {
 		token := authHeader
 		if strings.HasPrefix(authHeader, "Bearer ") {
 			parts := strings.SplitN(authHeader, " ", 2)
 			token = strings.TrimSpace(parts[1])
 		}
-		return h.store.IsWebhookTokenValid(ctx, jobID, token)
+		if ok, err := h.store.IsWebhookTokenValid(ctx, jobID, token); err == nil && ok {
+			return true
+		}
 	}
 
-	// Try X-Hub-Signature-256 / X-Gitea-Signature
-	signature := r.Header.Get("X-Hub-Signature-256")
-	if signature == "" {
-		signature = r.Header.Get("X-Gitea-Signature")
-	}
-	if signature != "" {
-		return h.store.IsWebhookSignatureValid(ctx, jobID, signature, body)
+	// Try X-Gitlab-Token
+	if token := r.Header.Get("X-Gitlab-Token"); token != "" {
+		if ok, err := h.store.IsWebhookTokenValid(ctx, jobID, token); err == nil && ok {
+			return true
+		}
 	}
 
-	return false, nil
+	return false
 }
 
 // filterCandidates filters jobs based on job name and project membership.
@@ -332,6 +346,18 @@ func isValidForgejoEvent(event string, payload *ForgejoEvent) (bool, string) {
 			return false, "pull request action is not edited, closed, or reopened"
 		}
 
+	case "push":
+		if payload.Ref == "" {
+			return false, "no ref in push payload"
+		}
+		if !strings.HasPrefix(payload.Ref, "refs/heads/") {
+			return false, "not a branch push"
+		}
+		if payload.After == "0000000000000000000000000000000000000000" {
+			return false, "branch deletion"
+		}
+		return true, ""
+
 	default:
 		return false, "unsupported event type: " + event
 	}
@@ -379,13 +405,6 @@ func verifyRenovateDescriptionChange(body string) bool {
 	return isRenovateContent(body) && hasCheckboxBeenChecked(body)
 }
 
-// ValidateHMACSHA256 validates a Forgejo HMAC-SHA256 signature.
-func ValidateHMACSHA256(secret string, body []byte, signature string) bool {
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write(body)
-	expected := hex.EncodeToString(mac.Sum(nil))
-	return hmac.Equal([]byte(expected), []byte(signature))
-}
 
 func writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
