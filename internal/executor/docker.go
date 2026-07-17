@@ -20,6 +20,7 @@ import (
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/api"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/statestore"
@@ -726,11 +727,13 @@ func (e *DockerExecutor) getContainerLogs(ctx context.Context, containerID strin
 	}
 	defer func() { _ = reader.Close() }()
 
-	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, reader); err != nil {
+	// Docker multiplexes stdout/stderr with 8-byte frame headers when Tty is
+	// not set. stdcopy.StdCopy demultiplexes the stream into separate writers.
+	var stdout, stderr bytes.Buffer
+	if _, err := stdcopy.StdCopy(&stdout, &stderr, reader); err != nil {
 		return nil, err
 	}
-	return buf.Bytes(), nil
+	return stdout.Bytes(), nil
 }
 
 // GetRunningContainerID returns the container ID for a running project, if any.
