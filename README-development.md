@@ -1,8 +1,10 @@
-# Renovate Operator — Claude Code Guide
+# Renovate Docker Operator — Development Guide
+
+This document covers project structure, coding conventions, architectural decisions, and everything a contributor needs to work on this codebase.
 
 ## Project Overview
 
-A Kubernetes-native operator that runs [Renovate](https://github.com/renovatebot/renovate) for automated dependency updates. It manages CRDs, cron scheduling, parallel job execution, and a web UI — all while abstracting over multiple Git platforms.
+A standalone Docker-based operator that runs [Renovate](https://github.com/renovatebot/renovate) for automated dependency updates. It manages cron scheduling, parallel job execution, webhook-driven triggers, and a web UI — all while abstracting over multiple Git platforms.
 
 ## Directory Structure
 
@@ -38,6 +40,30 @@ charts/                    # Helm chart
 docs/                      # Documentation
 ```
 
+## Building & Testing
+
+```bash
+# Build the binary
+go build ./cmd/
+
+# Run tests
+go test ./...
+
+# Run locally (requires Docker and PLATFORM_ENDPOINT)
+export PLATFORM_ENDPOINT="https://git.example.com"
+export RENOVATE_TOKEN="your-token"
+export SQLITE_PATH="./test.db"
+./renovate-docker-operator
+```
+
+### Verification Commands
+
+Use the following commands to validate the code before submitting changes:
+
+- `just build` — compile the project
+- `just test-unit` — run unit tests
+- `just generate` — regenerate code (CRD manifests, deepcopy, etc.)
+
 ## Coding Conventions
 
 ### 1. Everything is Generic — Program to Interfaces
@@ -65,6 +91,7 @@ Never instantiate a provider client directly outside the factory.
 ### 3. Kubernetes Job–Based Execution
 
 Renovate runs are launched as Kubernetes Jobs (not bare Pods). This ensures:
+
 - TTL-based cleanup via `ttlSecondsAfterFinished`
 - Restart policies and retry semantics
 - Label-based selection (`renovate-operator.mogenius.com/job-type`, `job-name`, `generation`)
@@ -74,6 +101,7 @@ Job templates are built in `internal/renovate/jobDefinitions.go`. Extend templat
 ### 4. Configuration
 
 All configuration is environment-variable driven via the singleton in `config/`. Rules:
+
 - Declare new config values in the config schema (with `Optional`/`Required` and defaults)
 - Access config values via `config.GetValue()` — never read `os.Getenv` directly elsewhere
 - Keep the config schema the single source of truth for what the operator accepts
@@ -93,6 +121,7 @@ All configuration is environment-variable driven via the singleton in `config/`.
 ### 7. Logging
 
 Use the `logr.Logger` interface throughout (injected, never obtained globally). Follow these conventions:
+
 - `logger.Info(...)` for normal operational events
 - `logger.V(1).Info(...)` for verbose/debug output
 - `logger.Error(err, ...)` for errors with context
@@ -101,6 +130,7 @@ Use the `logr.Logger` interface throughout (injected, never obtained globally). 
 ### 8. Kubernetes Reconciler Pattern
 
 Controllers use `controller-runtime` reconciliation. In reconcilers:
+
 - Return `ctrl.Result{RequeueAfter: ...}` for scheduled requeues
 - Return `ctrl.Result{}, err` to trigger immediate retry on error
 - Keep reconcilers idempotent — rerunning the same reconcile must be safe
@@ -118,7 +148,7 @@ Health state is managed centrally in the `health/` package with thread-safe sett
 ## Technology Stack
 
 | Concern | Library |
-|---|---|
+||---|
 | Operator framework | `sigs.k8s.io/controller-runtime` |
 | Scheduling | `github.com/netresearch/go-cron` |
 | HTTP routing | `github.com/gorilla/mux` |
@@ -128,23 +158,16 @@ Health state is managed centrally in the `health/` package with thread-safe sett
 
 ## Key Architectural Decisions
 
-- **Leader election** — only the leader runs the executor and scheduler to prevent duplicate job launches
-- **Platform credentials** live in Kubernetes Secrets, referenced from the CRD — never hardcoded
-- **Webhook servers** are platform-specific (`/webhook/v1/gitlab`, `/github`, `/forgejo`, `/gitea`, `/bitbucket`) but trigger the same internal scheduling interface
-- **Webhook sync is provider-agnostic and stateless** — after each discovery run, `crdManager.SyncWebhooks` ensures the operator's webhook exists on every discovered project (config: `spec.webhook.sync`) and removes it from the repos `ReconcileProjects` reported as removed. Hooks are identified by their delivery URL — no state is stored. The `webhook-cleanup` finalizer on the RenovateJob removes all hooks on deletion (best effort, never blocks deletion). The sync logic lives in `internal/webhookSync.Sync`, all platform access goes through `GitProviderClient` (implemented for all five providers). Sync uses the job's Renovate token by default; an optional dedicated webhook-management token can be set via `spec.webhook.sync.secretRef` (factory method `NewClientWithTokenRef`). Sync failures are logged, never block discovery (fail open)
-- **Discovery uses Renovate itself** — a discovery Job runs Renovate with `autodiscover: true` and its JSON logs are parsed to extract repositories
+- **Leader election** — only the leader runs the executor and scheduler to prevent duplicate job launches.
+- **Platform credentials** live in Kubernetes Secrets, referenced from the CRD — never hardcoded.
+- **Webhook servers** are platform-specific (`/webhook/v1/gitlab`, `/github`, `/forgejo`, `/gitea`, `/bitbucket`) but trigger the same internal scheduling interface.
+- **Webhook sync is provider-agnostic and stateless** — after each discovery run, `crdManager.SyncWebhooks` ensures the operator's webhook exists on every discovered project (config: `spec.webhook.sync`) and removes it from the repos `ReconcileProjects` reported as removed. Hooks are identified by their delivery URL — no state is stored. The `webhook-cleanup` finalizer on the RenovateJob removes all hooks on deletion (best effort, never blocks deletion). The sync logic lives in `internal/webhookSync.Sync`, all platform access goes through `GitProviderClient` (implemented for all five providers). Sync uses the job's Renovate token by default; an optional dedicated webhook-management token can be set via `spec.webhook.sync.secretRef` (factory method `NewClientWithTokenRef`). Sync failures are logged, never block discovery (fail open).
+- **Discovery uses Renovate itself** — a discovery Job runs Renovate with `autodiscover: true` and its JSON logs are parsed to extract repositories.
 - **Executor uses two passes per tick** — Pass 1 (`countRunningProjects`) tallies how many projects are still in `Running` status across all RenovateJobs (purely in-memory, no API calls); Pass 2 (`dispatchScheduled`) collects all Scheduled projects into a flat sorted list and dispatches new k8s Jobs up to the global and per-job parallelism limits. Running project status transitions are handled reactively by the `job_controller` (`ProcessProjectJobResult`) when k8s Jobs complete, not by the executor tick.
 - **Global parallelism limit** — `GLOBAL_PARALLELISM_LIMIT` env var (Helm: `config.globalParallelismLimit`, default `0` = unlimited) caps total concurrent executor jobs across all RenovateJobs. Per-job `Spec.Parallelism` is still enforced as an additional gate.
 - **Anti-starvation via priority-then-oldest-wait sort** — in Pass 2, candidates are sorted first by `Priority` descending, then by the oldest `LastRun` time among Scheduled projects in their RenovateJob. Among equal-priority candidates, the job that has been waiting longest dispatches first, preventing starvation.
 - **UI sub-path (`BASE_PATH`)** — the UI, API, auth and health routes can be served under a sub-path so the operator can be co-hosted with other apps on one hostname. `BASE_PATH` env (Helm: top-level `basePath`, default `""` = root) is normalized in `ui.BasePath()` (leading slash, no trailing slash). `server.go` mounts all routes on a `PathPrefix(basePath)` subrouter and redirects `/` → base path; `ui.go` strips the prefix for static files and injects `<base href>` + `window.__BASE_PATH__` into `index.html`/`logs.html`; the frontend builds all runtime URLs from `BASE`; auth redirects use `withBase()` and cookies are scoped via `cookiePath()`. The Helm `basePath` also drives the Ingress/HTTPRoute path and is appended to auto-detected OAuth/OIDC redirect URLs (`renovate-operator.basePath` helper). OAuth/OIDC redirect URLs registered with the identity provider must include the sub-path.
 
-# Verification
+## Maintaining This Document
 
-Use the following commands to validate the code:
-- `just build`
-- `just test-unit`
-- `just generate`
-
-# Important
-
-Every change to the structure should be adapted here!
+Every change to the project structure, conventions, or architectural decisions should be reflected here. Keep this file as the single source of truth for contributors.
