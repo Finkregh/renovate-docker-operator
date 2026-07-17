@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.3.0](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/compare/d62e39ded0050d472050620cb68b97324438c7db..v0.3.0) - 2026-07-17
+#### Features
+- implement log storage + parsing pipeline - ([d62e39d](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/d62e39ded0050d472050620cb68b97324438c7db)) - Oluf Lorenzen
+
+- - -
+
 ## [v0.2.3](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/compare/b85b300e1c557f0964cff67d7101f06a55f95988..v0.2.3) - 2026-07-17
 #### Continuous Integration
 - install jq - ([b85b300](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/b85b300e1c557f0964cff67d7101f06a55f95988)) - Oluf Lorenzen
