@@ -705,8 +705,8 @@ func (e *DockerExecutor) buildEnvVars(job *api.RenovateJob, _ string, isDiscover
 		}
 	}
 
-	// Pass through RENOVATE_TOKEN from operator process environment
-	if token := os.Getenv("RENOVATE_TOKEN"); token != "" {
+	// Pass through token: operator reads RENOVATEOP_TOKEN, container needs RENOVATE_TOKEN
+	if token := os.Getenv("RENOVATEOP_TOKEN"); token != "" {
 		envMap["RENOVATE_TOKEN"] = token
 	}
 

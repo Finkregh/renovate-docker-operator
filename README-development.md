@@ -51,7 +51,7 @@ go test ./...
 
 # Run locally (requires Docker and PLATFORM_ENDPOINT)
 export PLATFORM_ENDPOINT="https://git.example.com"
-export RENOVATE_TOKEN="your-token"
+export RENOVATEOP_TOKEN="your-token"
 export SQLITE_PATH="./test.db"
 ./renovate-docker-operator
 ```

@@ -1,38 +1,36 @@
 services:
   renovate-operator:
     build: .
+    # or pre-built image
+    #image: git.h.oluflorenzen.de/finkregh/renovate-docker-operator:latest
     container_name: renovate-docker-operator
     restart: unless-stopped
     ports:
       - "${SERVER_PORT:-8081}:${SERVER_PORT:-8081}"
     environment:
-      # Required
-      PLATFORM_ENDPOINT: "${PLATFORM_ENDPOINT:-https://git.example.com}"
-      RENOVATE_TOKEN: "${RENOVATE_TOKEN}"
+      # These have to be changed!
+      PLATFORM_ENDPOINT: "${PLATFORM_ENDPOINT}"
+      RENOVATEOP_TOKEN: "FIXME"
 
-      # Optional overrides
-      PLATFORM: "${PLATFORM:-forgejo}"
-      RENOVATE_IMAGE: "${RENOVATE_IMAGE:-renovate/renovate:latest}"
-      CRON_SCHEDULE: "${CRON_SCHEDULE:-0 */4 * * *}"
-      GLOBAL_PARALLELISM_LIMIT: "${GLOBAL_PARALLELISM_LIMIT:-2}"
-      SERVER_PORT: "${SERVER_PORT:-8081}"
-      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      # Spawned renovate containers will join this network (same as the compose-network below)
       CONTAINER_NETWORK: "renovate"
 
-      # Webhook (enabled by default)
-      WEBHOOK_SERVER_ENABLED: "${WEBHOOK_SERVER_ENABLED:-true}"
-      WEBHOOK_SECRET: "${WEBHOOK_SECRET:-}"
-
-      # Auth (optional — leave blank for no-auth mode)
-      OIDC_ISSUER_URL: "${OIDC_ISSUER_URL:-}"
-      OIDC_CLIENT_ID: "${OIDC_CLIENT_ID:-}"
-      OIDC_CLIENT_SECRET: "${OIDC_CLIENT_SECRET:-}"
-      OIDC_REDIRECT_URL: "${OIDC_REDIRECT_URL:-}"
-      SESSION_SECRET: "${SESSION_SECRET:-}"
-
-      # Discovery filters (optional)
-      RENOVATE_DISCOVERY_FILTERS: "${RENOVATE_DISCOVERY_FILTERS:-}"
-      AUTODISCOVER_SKIP_FORKS: "${AUTODISCOVER_SKIP_FORKS:-false}"
+      # Optional overrides (uncomment to diverge from Dockerfile defaults)
+      # PLATFORM: "forgejo"
+      # RENOVATEOP_IMAGE: "renovate/renovate:latest"
+      # CRON_SCHEDULE: "0 */4 * * *"
+      # GLOBAL_PARALLELISM_LIMIT: "2"
+      # SERVER_PORT: "8081"
+      # RENOVATEOP_LOG_LEVEL: "info"
+      # WEBHOOK_SERVER_ENABLED: "true"
+      # WEBHOOK_SECRET: ""
+      # OIDC_ISSUER_URL: ""
+      # OIDC_CLIENT_ID: ""
+      # OIDC_CLIENT_SECRET: ""
+      # OIDC_REDIRECT_URL: ""
+      # SESSION_SECRET: ""
+      # RENOVATEOP_DISCOVERY_FILTERS: ""
+      # AUTODISCOVER_SKIP_FORKS: "false"
     volumes:
       # Persist SQLite database
       - operator-data:/data
@@ -40,20 +38,6 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - renovate
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "wget",
-          "--quiet",
-          "--tries=1",
-          "--spider",
-          "http://localhost:${SERVER_PORT:-8081}/healthz",
-        ]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
 
 volumes:
   operator-data:

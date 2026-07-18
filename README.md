@@ -59,7 +59,7 @@ cd renovate-docker-operator
 
 # 2. Copy and edit environment file
 cp .env.example .env
-# Edit .env — set RENOVATE_TOKEN at minimum
+# Edit .env — set RENOVATEOP_TOKEN at minimum
 
 # 3. Start with Docker Compose
 docker compose up -d
@@ -77,7 +77,7 @@ Edit `.env`:
 
 ```env
 PLATFORM_ENDPOINT=https://git.example.com
-RENOVATE_TOKEN=<your-forgejo-token>
+RENOVATEOP_TOKEN=<your-forgejo-token>
 PLATFORM=forgejo
 ```
 
@@ -102,9 +102,9 @@ All configuration is via environment variables:
 | Variable | Default | Description |
 | ---------- | --------- | ------------- |
 | `PLATFORM_ENDPOINT` | *(required)* | Forgejo/Gitea instance URL |
-| `RENOVATE_TOKEN` | *(required)* | Platform access token for Renovate |
+| `RENOVATEOP_TOKEN` | *(required)* | Platform access token for Renovate |
 | `PLATFORM` | `forgejo` | Platform type (`forgejo`, `gitea`, `github`, `gitlab`) |
-| `RENOVATE_IMAGE` | `renovate/renovate:latest` | Docker image for Renovate |
+| `RENOVATEOP_IMAGE` | `renovate/renovate:latest` | Docker image for Renovate |
 | `CRON_SCHEDULE` | `0 */4 * * *` | Cron expression for discovery+run cycles |
 | `GLOBAL_PARALLELISM_LIMIT` | `2` | Max concurrent Renovate containers |
 | `SERVER_PORT` | `8081` | HTTP server port (UI + webhook + API) |
@@ -114,7 +114,7 @@ All configuration is via environment variables:
 | `IMAGE_PULL_POLICY` | `if-not-present` | When to pull image (`always`, `if-not-present`, `never`) |
 | `JOB_TIMEOUT_SECONDS` | `1800` | Max runtime per Renovate container (30 min) |
 | `SHUTDOWN_GRACE_PERIOD` | `300` | Grace period for stopping containers on shutdown (5 min) |
-| `LOG_LEVEL` | `info` | Log level (`debug`, `info`, `warn`, `error`) |
+| `RENOVATEOP_LOG_LEVEL` | `info` | Log level (`debug`, `info`, `warn`, `error`) |
 
 ### Webhook Configuration
 
@@ -162,8 +162,8 @@ For Forgejo instances where you want all repositories covered automatically, use
 
 | Variable | Default | Description |
 | ---------- | --------- | ------------- |
-| `RENOVATE_DISCOVERY_FILTERS` | *(empty)* | Comma-separated repo patterns (e.g., `org/*,user/repo-*`) |
-| `RENOVATE_DISCOVER_TOPICS` | *(empty)* | Comma-separated topics to filter by |
+| `RENOVATEOP_DISCOVERY_FILTERS` | *(empty)* | Comma-separated repo patterns (e.g., `org/*,user/repo-*`) |
+| `RENOVATEOP_DISCOVER_TOPICS` | *(empty)* | Comma-separated topics to filter by |
 | `AUTODISCOVER_SKIP_FORKS` | `false` | Skip forked repositories |
 | `CRON_SKIP_DISCOVERY` | `false` | Skip discovery on cron (only run known projects) |
 
