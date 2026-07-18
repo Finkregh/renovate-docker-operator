@@ -17,6 +17,12 @@ import (
 // ErrNoMatchingJob is returned when no RenovateJob matches the webhook request.
 var ErrNoMatchingJob = errors.New("no matching renovate job found")
 
+// ErrWebhookDisabled is returned when the matched job has webhooks disabled.
+var ErrWebhookDisabled = errors.New("webhooks are not enabled on the matched job")
+
+// ErrProjectNotDiscovered is returned when the project has not been discovered yet.
+var ErrProjectNotDiscovered = errors.New("project not found in job; run discovery first")
+
 // ErrAuthenticationFailed is returned when webhook signature validation fails.
 var ErrAuthenticationFailed = errors.New("authentication failed")
 
@@ -80,6 +86,8 @@ func NewHandler(store statestore.RenovateJobManager, logger *slog.Logger, maxReq
 func (h *Handler) HandleForgejo(w http.ResponseWriter, r *http.Request) {
 	event := r.Header.Get("X-Forgejo-Event")
 	if event == "" {
+		h.logger.Warn("webhook rejected: missing X-Forgejo-Event header",
+			"remote", r.RemoteAddr)
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing X-Forgejo-Event header"})
 		return
 	}
@@ -88,9 +96,13 @@ func (h *Handler) HandleForgejo(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		if isMaxBytesError(err) {
+			h.logger.Warn("webhook rejected: request body too large",
+				"event", event, "remote", r.RemoteAddr)
 			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "request body too large"})
 			return
 		}
+		h.logger.Error("webhook rejected: failed to read request body",
+			"event", event, "remote", r.RemoteAddr, "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to read request body"})
 		return
 	}
@@ -119,7 +131,7 @@ func (h *Handler) HandleForgejo(w http.ResponseWriter, r *http.Request) {
 
 	jobID, err := h.findAndAuthenticateJob(r.Context(), jobName, project, r, body)
 	if err != nil {
-		h.handleResolverError(w, err)
+		h.handleResolverError(w, err, event, project)
 		return
 	}
 
@@ -139,6 +151,8 @@ func (h *Handler) HandleForgejo(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		if errors.Is(err, statestore.ErrProjectNotFound) {
+			h.logger.Warn("webhook rejected: project not found",
+				"event", event, "project", project)
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "project not found: " + project})
 		} else {
 			h.logger.Error("failed to schedule project", "project", project, "error", err)
@@ -157,6 +171,8 @@ func (h *Handler) HandleForgejo(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) HandleSchedule(w http.ResponseWriter, r *http.Request) {
 	project := r.URL.Query().Get("project")
 	if project == "" {
+		h.logger.Warn("schedule rejected: missing project query parameter",
+			"remote", r.RemoteAddr)
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing project query parameter"})
 		return
 	}
@@ -167,16 +183,20 @@ func (h *Handler) HandleSchedule(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		if isMaxBytesError(err) {
+			h.logger.Warn("schedule rejected: request body too large",
+				"project", project, "remote", r.RemoteAddr)
 			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "request body too large"})
 			return
 		}
+		h.logger.Error("schedule rejected: failed to read request body",
+			"project", project, "remote", r.RemoteAddr, "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to read request body"})
 		return
 	}
 
 	jobID, err := h.findAndAuthenticateJob(r.Context(), jobName, project, r, body)
 	if err != nil {
-		h.handleResolverError(w, err)
+		h.handleResolverError(w, err, "schedule", project)
 		return
 	}
 
@@ -190,6 +210,8 @@ func (h *Handler) HandleSchedule(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		if errors.Is(err, statestore.ErrProjectNotFound) {
+			h.logger.Warn("schedule rejected: project not found",
+				"project", project)
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "project not found: " + project})
 		} else {
 			h.logger.Error("failed to schedule project", "project", project, "error", err)
@@ -209,9 +231,9 @@ func (h *Handler) findAndAuthenticateJob(ctx context.Context, jobName, project s
 		return statestore.RenovateJobIdentifier{}, err
 	}
 
-	candidates := filterCandidates(jobs, jobName, project)
+	candidates, resolveErr := filterCandidates(jobs, jobName, project)
 	if len(candidates) == 0 {
-		return statestore.RenovateJobIdentifier{}, ErrNoMatchingJob
+		return statestore.RenovateJobIdentifier{}, resolveErr
 	}
 
 	for _, job := range candidates {
@@ -278,22 +300,46 @@ func (h *Handler) authenticate(ctx context.Context, jobID statestore.RenovateJob
 	return false
 }
 
-// filterCandidates filters jobs based on job name and project membership.
-func filterCandidates(jobs []api.RenovateJob, jobName, project string) []api.RenovateJob {
+// filterCandidates filters jobs based on job name, webhook enabled state, and project membership.
+// Returns the matching candidates and, when empty, a specific error explaining why no job matched.
+func filterCandidates(jobs []api.RenovateJob, jobName, project string) ([]api.RenovateJob, error) {
 	out := make([]api.RenovateJob, 0, len(jobs))
+	var (
+		nameMatched     bool
+		webhookDisabled bool
+		projectMissing  bool
+	)
 	for _, job := range jobs {
 		if jobName != "" && job.Name != jobName {
 			continue
 		}
+		nameMatched = true
 		if job.Spec.Webhook == nil || !job.Spec.Webhook.Enabled {
+			webhookDisabled = true
 			continue
 		}
 		if !hasProject(job.Status.Projects, project) {
+			projectMissing = true
 			continue
 		}
 		out = append(out, job)
 	}
-	return out
+
+	if len(out) > 0 {
+		return out, nil
+	}
+
+	// Return the most specific reason for no match.
+	if !nameMatched {
+		return nil, ErrNoMatchingJob
+	}
+	if webhookDisabled {
+		return nil, ErrWebhookDisabled
+	}
+	if projectMissing {
+		return nil, ErrProjectNotDiscovered
+	}
+	return nil, ErrNoMatchingJob
 }
 
 func hasProject(projects []api.ProjectStatus, project string) bool {
@@ -305,17 +351,35 @@ func hasProject(projects []api.ProjectStatus, project string) bool {
 	return false
 }
 
-func (h *Handler) handleResolverError(w http.ResponseWriter, err error) {
-	if errors.Is(err, ErrNoMatchingJob) {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
-		return
-	}
-	if errors.Is(err, ErrAuthenticationFailed) {
+func (h *Handler) handleResolverError(w http.ResponseWriter, err error, event, repository string) {
+	switch {
+	case errors.Is(err, ErrNoMatchingJob):
+		h.logger.Warn("webhook rejected: no matching job",
+			"event", event, "repository", repository)
+		writeJSON(w, http.StatusNotFound, map[string]string{
+			"error": "no matching job found for this webhook request",
+		})
+	case errors.Is(err, ErrWebhookDisabled):
+		h.logger.Warn("webhook rejected: webhooks disabled on matched job",
+			"event", event, "repository", repository)
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "webhooks are not enabled on the matched job; set webhook_enabled=1 in the database or enable via the UI",
+		})
+	case errors.Is(err, ErrProjectNotDiscovered):
+		h.logger.Warn("webhook rejected: project not discovered",
+			"event", event, "repository", repository)
+		writeJSON(w, http.StatusNotFound, map[string]string{
+			"error": "project not found in job; ensure discovery has run and the project is registered",
+		})
+	case errors.Is(err, ErrAuthenticationFailed):
+		h.logger.Warn("webhook rejected: authentication failed",
+			"event", event, "repository", repository)
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
-		return
+	default:
+		h.logger.Error("unexpected error resolving webhook job",
+			"event", event, "repository", repository, "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
 	}
-	h.logger.Error("unexpected error resolving webhook job", "error", err)
-	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
 }
 
 // isValidForgejoEvent validates whether a Forgejo webhook event should trigger Renovate.

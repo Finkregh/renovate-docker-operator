@@ -119,11 +119,12 @@ func (s *SQLiteStore) seedDefaultJob() error {
 	discoveryFilters := commaSepToJSON(os.Getenv("RENOVATEOP_DISCOVERY_FILTERS"))
 	discoverTopics := commaSepToJSON(os.Getenv("RENOVATEOP_DISCOVER_TOPICS"))
 	skipForks := boolToInt(os.Getenv("AUTODISCOVER_SKIP_FORKS"))
+	webhookEnabled := boolToIntDefault(os.Getenv("WEBHOOK_SERVER_ENABLED"), 1)
 
 	_, err := s.writeDB.ExecContext(ctx, `INSERT INTO renovate_jobs
-		(name, schedule, image, platform, endpoint, discovery_filters, discover_topics, skip_forks, parallelism)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		"default", schedule, image, platform, endpoint, discoveryFilters, discoverTopics, skipForks, parallelism,
+		(name, schedule, image, platform, endpoint, discovery_filters, discover_topics, skip_forks, parallelism, webhook_enabled)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"default", schedule, image, platform, endpoint, discoveryFilters, discoverTopics, skipForks, parallelism, webhookEnabled,
 	)
 	if err != nil {
 		return fmt.Errorf("inserting default job: %w", err)
@@ -886,6 +887,14 @@ func boolToInt(s string) int {
 		return 1
 	}
 	return 0
+}
+
+// boolToIntDefault parses a boolean string, returning defaultVal if the string is empty.
+func boolToIntDefault(s string, defaultVal int) int {
+	if strings.TrimSpace(s) == "" {
+		return defaultVal
+	}
+	return boolToInt(s)
 }
 
 func commaSepToJSON(s string) string {

@@ -97,7 +97,7 @@ func (s *Server) Start() {
 
 	s.server = &http.Server{
 		Addr:         ":" + port,
-		Handler:      csrfMiddleware(router),
+		Handler:      accessLogMiddleware(s.logger)(csrfMiddleware(s.logger)(router)),
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 60 * time.Second,
 		IdleTimeout:  120 * time.Second,
@@ -138,6 +138,7 @@ type RenovateJobInfo struct {
 	Platform         string                             `json:"platform,omitempty"`
 	PlatformEndpoint string                             `json:"platformEndpoint,omitempty"`
 	ExecutionOptions *api.RenovateExecutionOptions      `json:"executionOptions,omitempty"`
+	WebhookEnabled   bool                               `json:"webhookEnabled"`
 }
 
 func (s *Server) getVersion(w http.ResponseWriter, _ *http.Request) {
@@ -183,6 +184,7 @@ func (s *Server) getRenovateJobs(w http.ResponseWriter, r *http.Request) {
 			Platform:         platform,
 			PlatformEndpoint: endpoint,
 			ExecutionOptions: job.Status.ExecutionOptions,
+			WebhookEnabled:   job.Spec.Webhook != nil && job.Spec.Webhook.Enabled,
 		})
 	}
 
@@ -393,8 +395,9 @@ func (s *Server) runDiscovery(w http.ResponseWriter, r *http.Request) {
 func (s *Server) updateExecutionOptions(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, s.maxRequestBody)
 	var params struct {
-		RenovateJob string `json:"renovateJob"`
-		Debug       bool   `json:"debug"`
+		RenovateJob    string `json:"renovateJob"`
+		Debug          bool   `json:"debug"`
+		WebhookEnabled *bool  `json:"webhookEnabled,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
 		if isMaxBytesError(err) {
@@ -419,6 +422,19 @@ func (s *Server) updateExecutionOptions(w http.ResponseWriter, r *http.Request) 
 		s.logger.Error("failed to update execution options", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to update"})
 		return
+	}
+
+	if params.WebhookEnabled != nil {
+		err = s.store.UpdateWebhookEnabled(
+			r.Context(),
+			statestore.RenovateJobIdentifier{Name: params.RenovateJob},
+			*params.WebhookEnabled,
+		)
+		if err != nil {
+			s.logger.Error("failed to update webhook_enabled", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to update webhook_enabled"})
+			return
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"message": "execution options updated"})
