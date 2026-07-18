@@ -411,6 +411,9 @@ func (m *mockStore) IsWebhookStandardSignatureValid(context.Context, statestore.
 func (m *mockStore) UpdateExecutionOptions(context.Context, statestore.RenovateJobIdentifier, *api.RenovateExecutionOptions) error {
 	return nil
 }
+func (m *mockStore) UpdateWebhookEnabled(context.Context, statestore.RenovateJobIdentifier, bool) error {
+	return nil
+}
 func (m *mockStore) CancelProjectJob(context.Context, string, statestore.RenovateJobIdentifier) error {
 	return nil
 }

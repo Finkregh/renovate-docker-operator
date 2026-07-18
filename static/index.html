@@ -907,6 +907,7 @@
                 renovateJob: job.name,
                 namespace: job.namespace,
                 debug: options.debug,
+                webhookEnabled: options.webhookEnabled,
               }),
             });
             if (response.ok) {
@@ -915,7 +916,8 @@
                   j.name === job.name && j.namespace === job.namespace
                     ? {
                         ...j,
-                        executionOptions: { ...j.executionOptions, ...options },
+                        executionOptions: { ...j.executionOptions, debug: options.debug },
+                        webhookEnabled: options.webhookEnabled,
                       }
                     : j,
                 ),
@@ -1806,6 +1808,9 @@
         const [debugOption, setDebugOption] = useState(
           job.executionOptions?.debug ?? false,
         );
+        const [webhookOption, setWebhookOption] = useState(
+          job.webhookEnabled ?? false,
+        );
 
         const getBadgeClass = (status) => {
           const base =
@@ -1989,9 +1994,20 @@
                             Debug mode
                           </span>
                         </label>
+                        <label className="flex items-center gap-2 mb-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={webhookOption}
+                            onChange={(e) => setWebhookOption(e.target.checked)}
+                            className="w-4 h-4 rounded border-gray-300 accent-primary"
+                          />
+                          <span className="text-sm text-gray-700 dark:text-slate-300">
+                            Webhook enabled
+                          </span>
+                        </label>
                         <button
                           onClick={() => {
-                            onSaveExecutionOptions(job, { debug: debugOption });
+                            onSaveExecutionOptions(job, { debug: debugOption, webhookEnabled: webhookOption });
                             setShowOptions(false);
                           }}
                           className="w-full bg-primary hover:bg-primary-hover text-white px-3 py-2 rounded-lg text-sm font-semibold transition-colors"

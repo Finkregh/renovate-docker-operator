@@ -512,6 +512,16 @@ func (s *SQLiteStore) UpdateExecutionOptions(ctx context.Context, job RenovateJo
 	return err
 }
 
+// UpdateWebhookEnabled toggles the webhook_enabled flag for a job.
+func (s *SQLiteStore) UpdateWebhookEnabled(ctx context.Context, job RenovateJobIdentifier, enabled bool) error {
+	v := 0
+	if enabled {
+		v = 1
+	}
+	_, err := s.writeDB.ExecContext(ctx, `UPDATE renovate_jobs SET webhook_enabled = ? WHERE name = ?`, v, job.Name)
+	return err
+}
+
 // CancelProjectJob cancels a running project job.
 func (s *SQLiteStore) CancelProjectJob(ctx context.Context, project string, job RenovateJobIdentifier) error {
 	tx, err := s.writeDB.BeginTx(ctx, nil)

@@ -49,6 +49,8 @@ type RenovateJobManager interface {
 	IsWebhookStandardSignatureValid(ctx context.Context, job RenovateJobIdentifier, msgID, timestamp, signature string, body []byte) (bool, error)
 	// UpdateExecutionOptions updates the execution options for the specified RenovateJob.
 	UpdateExecutionOptions(ctx context.Context, job RenovateJobIdentifier, options *api.RenovateExecutionOptions) error
+	// UpdateWebhookEnabled toggles the webhook_enabled flag for the specified RenovateJob.
+	UpdateWebhookEnabled(ctx context.Context, job RenovateJobIdentifier, enabled bool) error
 	// CancelProjectJob stops the running Docker container for the given project and
 	// transitions its status to cancelled, freeing the slot for the next dispatch.
 	CancelProjectJob(ctx context.Context, project string, job RenovateJobIdentifier) error
