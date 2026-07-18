@@ -64,7 +64,7 @@ func New(dbPath string, logger *slog.Logger) (*SQLiteStore, error) {
 
 	// Load webhook tokens from environment.
 	var tokens []string
-	if secret := os.Getenv("WEBHOOK_SECRET"); secret != "" {
+	if secret := os.Getenv("ROP_WEBHOOK_SECRET"); secret != "" {
 		for _, t := range strings.Split(secret, ",") {
 			t = strings.TrimSpace(t)
 			if t != "" {
@@ -111,15 +111,15 @@ func (s *SQLiteStore) seedDefaultJob() error {
 		return nil
 	}
 
-	platform := envOrDefault("PLATFORM", "forgejo")
-	endpoint := os.Getenv("PLATFORM_ENDPOINT")
-	image := envOrDefault("RENOVATEOP_IMAGE", "renovate/renovate:latest")
-	schedule := envOrDefault("CRON_SCHEDULE", "0 */4 * * *")
-	parallelism := envOrDefaultInt("GLOBAL_PARALLELISM_LIMIT", 2)
-	discoveryFilters := commaSepToJSON(os.Getenv("RENOVATEOP_DISCOVERY_FILTERS"))
-	discoverTopics := commaSepToJSON(os.Getenv("RENOVATEOP_DISCOVER_TOPICS"))
-	skipForks := boolToInt(os.Getenv("AUTODISCOVER_SKIP_FORKS"))
-	webhookEnabled := boolToIntDefault(os.Getenv("WEBHOOK_SERVER_ENABLED"), 1)
+	platform := envOrDefault("ROP_PLATFORM", "forgejo")
+	endpoint := os.Getenv("ROP_PLATFORM_ENDPOINT")
+	image := envOrDefault("ROP_IMAGE", "renovate/renovate:latest")
+	schedule := envOrDefault("ROP_CRON_SCHEDULE", "0 */4 * * *")
+	parallelism := envOrDefaultInt("ROP_PARALLELISM", 2)
+	discoveryFilters := commaSepToJSON(os.Getenv("ROP_DISCOVERY_FILTERS"))
+	discoverTopics := commaSepToJSON(os.Getenv("ROP_DISCOVER_TOPICS"))
+	skipForks := boolToInt(os.Getenv("ROP_SKIP_FORKS"))
+	webhookEnabled := boolToIntDefault(os.Getenv("ROP_WEBHOOK_ENABLED"), 1)
 
 	_, err := s.writeDB.ExecContext(ctx, `INSERT INTO renovate_jobs
 		(name, schedule, image, platform, endpoint, discovery_filters, discover_topics, skip_forks, parallelism, webhook_enabled)

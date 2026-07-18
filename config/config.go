@@ -27,53 +27,53 @@ func envOrDefaultDuration(key string, defaultValue time.Duration) time.Duration 
 // Config holds all operator configuration loaded from environment variables.
 type Config struct {
 	// Database
-	SQLitePath string // SQLITE_PATH (default: /data/renovate.db)
+	SQLitePath string // ROP_SQLITE_PATH (default: /data/renovate.db)
 
 	// Docker
-	RenovateImage    string // RENOVATEOP_IMAGE (default: renovate/renovate:latest)
-	CacheVolume      string // CACHE_VOLUME (default: renovate-cache)
-	ContainerNetwork string // CONTAINER_NETWORK (default: "")
-	ImagePullPolicy  string // IMAGE_PULL_POLICY (default: if-not-present)
+	RenovateImage    string // ROP_IMAGE (default: renovate/renovate:latest)
+	CacheVolume      string // ROP_CACHE_VOLUME (default: renovate-cache)
+	ContainerNetwork string // ROP_CONTAINER_NETWORK (default: "")
+	ImagePullPolicy  string // ROP_IMAGE_PULL_POLICY (default: if-not-present)
 
 	// Execution
-	Parallelism int           // GLOBAL_PARALLELISM_LIMIT (default: 2)
-	JobTimeout  time.Duration // JOB_TIMEOUT_SECONDS (default: 1800)
-	GracePeriod time.Duration // SHUTDOWN_GRACE_PERIOD (default: 300)
+	Parallelism int           // ROP_PARALLELISM (default: 2)
+	JobTimeout  time.Duration // ROP_JOB_TIMEOUT (default: 1800)
+	GracePeriod time.Duration // ROP_SHUTDOWN_GRACE_PERIOD (default: 300)
 
 	// Platform
-	Platform         string // PLATFORM (default: forgejo)
-	PlatformEndpoint string // PLATFORM_ENDPOINT (required)
-	PlatformToken    string // RENOVATEOP_TOKEN (required)
+	Platform         string // ROP_PLATFORM (default: forgejo)
+	PlatformEndpoint string // ROP_PLATFORM_ENDPOINT (required)
+	PlatformToken    string // RENOVATE_TOKEN (required)
 
 	// Schedule
-	CronSchedule      string // CRON_SCHEDULE (default: 0 */4 * * *)
-	CronSkipDiscovery bool   // CRON_SKIP_DISCOVERY (default: false)
+	CronSchedule      string // ROP_CRON_SCHEDULE (default: 0 */4 * * *)
+	CronSkipDiscovery bool   // ROP_CRON_SKIP_DISCOVERY (default: false)
 
 	// Server
-	ServerPort     string // SERVER_PORT (default: 8081)
-	WebhookEnabled bool   // WEBHOOK_SERVER_ENABLED (default: true)
-	WebhookSecret  string // WEBHOOK_SECRET (optional, comma-separated)
+	ServerPort     string // ROP_SERVER_PORT (default: 8081)
+	WebhookEnabled bool   // ROP_WEBHOOK_ENABLED (default: true)
+	WebhookSecret  string // ROP_WEBHOOK_SECRET (optional, comma-separated)
 
 	// Auth
-	OIDCIssuerURL    string // OIDC_ISSUER_URL (optional)
-	OIDCClientID     string // OIDC_CLIENT_ID (optional)
-	OIDCClientSecret string // OIDC_CLIENT_SECRET (optional)
-	OIDCRedirectURL  string // OIDC_REDIRECT_URL (optional)
-	SessionSecret    string // SESSION_SECRET (optional, auto-generated if empty)
+	OIDCIssuerURL    string // ROP_OIDC_ISSUER_URL (optional)
+	OIDCClientID     string // ROP_OIDC_CLIENT_ID (optional)
+	OIDCClientSecret string // ROP_OIDC_CLIENT_SECRET (optional)
+	OIDCRedirectURL  string // ROP_OIDC_REDIRECT_URL (optional)
+	SessionSecret    string // ROP_SESSION_SECRET (optional, auto-generated if empty)
 
 	// Discovery
-	DiscoveryFilters string // RENOVATEOP_DISCOVERY_FILTERS (comma-sep, optional)
-	DiscoverTopics   string // RENOVATEOP_DISCOVER_TOPICS (comma-sep, optional)
-	SkipForks        bool   // AUTODISCOVER_SKIP_FORKS (default: false)
+	DiscoveryFilters string // ROP_DISCOVERY_FILTERS (comma-sep, optional)
+	DiscoverTopics   string // ROP_DISCOVER_TOPICS (comma-sep, optional)
+	SkipForks        bool   // ROP_SKIP_FORKS (default: false)
 
 	// Logging
-	LogLevel string // RENOVATEOP_LOG_LEVEL (default: info)
+	LogLevel string // ROP_LOG_LEVEL (default: info)
 
 	// Security
-	MaxRequestBody int64 // RENOVATEOP_MAX_REQUEST_BODY (default: 2 MiB)
+	MaxRequestBody int64 // ROP_MAX_REQUEST_BODY (default: 2 MiB)
 
 	// Image Cache
-	ImageCacheTTL time.Duration // RENOVATEOP_IMAGE_CACHE_TTL (default: 24h, 0 disables)
+	ImageCacheTTL time.Duration // ROP_IMAGE_CACHE_TTL (default: 24h, 0 disables)
 }
 
 // configValues stores a flat map of config values for GetValue lookups.
@@ -85,41 +85,41 @@ var configValues map[string]string
 // Returns an error if required variables are missing.
 func Load() (*Config, error) {
 	cfg := &Config{
-		SQLitePath:       envOrDefault("SQLITE_PATH", "/data/renovate.db"),
-		RenovateImage:    envOrDefault("RENOVATEOP_IMAGE", "renovate/renovate:latest"),
-		CacheVolume:      envOrDefault("CACHE_VOLUME", "renovate-cache"),
-		ContainerNetwork: os.Getenv("CONTAINER_NETWORK"),
-		ImagePullPolicy:  envOrDefault("IMAGE_PULL_POLICY", "if-not-present"),
-		Platform:         envOrDefault("PLATFORM", "forgejo"),
-		PlatformEndpoint: os.Getenv("PLATFORM_ENDPOINT"),
-		PlatformToken:    os.Getenv("RENOVATEOP_TOKEN"),
-		CronSchedule:     envOrDefault("CRON_SCHEDULE", "0 */4 * * *"),
-		ServerPort:       envOrDefault("SERVER_PORT", "8081"),
-		WebhookSecret:    os.Getenv("WEBHOOK_SECRET"),
-		OIDCIssuerURL:    os.Getenv("OIDC_ISSUER_URL"),
-		OIDCClientID:     os.Getenv("OIDC_CLIENT_ID"),
-		OIDCClientSecret: os.Getenv("OIDC_CLIENT_SECRET"),
-		OIDCRedirectURL:  os.Getenv("OIDC_REDIRECT_URL"),
-		SessionSecret:    os.Getenv("SESSION_SECRET"),
-		DiscoveryFilters: os.Getenv("RENOVATEOP_DISCOVERY_FILTERS"),
-		DiscoverTopics:   os.Getenv("RENOVATEOP_DISCOVER_TOPICS"),
-		LogLevel:         envOrDefault("RENOVATEOP_LOG_LEVEL", "info"),
+		SQLitePath:       envOrDefault("ROP_SQLITE_PATH", "/data/renovate.db"),
+		RenovateImage:    envOrDefault("ROP_IMAGE", "renovate/renovate:latest"),
+		CacheVolume:      envOrDefault("ROP_CACHE_VOLUME", "renovate-cache"),
+		ContainerNetwork: os.Getenv("ROP_CONTAINER_NETWORK"),
+		ImagePullPolicy:  envOrDefault("ROP_IMAGE_PULL_POLICY", "if-not-present"),
+		Platform:         envOrDefault("ROP_PLATFORM", "forgejo"),
+		PlatformEndpoint: os.Getenv("ROP_PLATFORM_ENDPOINT"),
+		PlatformToken:    os.Getenv("RENOVATE_TOKEN"),
+		CronSchedule:     envOrDefault("ROP_CRON_SCHEDULE", "0 */4 * * *"),
+		ServerPort:       envOrDefault("ROP_SERVER_PORT", "8081"),
+		WebhookSecret:    os.Getenv("ROP_WEBHOOK_SECRET"),
+		OIDCIssuerURL:    os.Getenv("ROP_OIDC_ISSUER_URL"),
+		OIDCClientID:     os.Getenv("ROP_OIDC_CLIENT_ID"),
+		OIDCClientSecret: os.Getenv("ROP_OIDC_CLIENT_SECRET"),
+		OIDCRedirectURL:  os.Getenv("ROP_OIDC_REDIRECT_URL"),
+		SessionSecret:    os.Getenv("ROP_SESSION_SECRET"),
+		DiscoveryFilters: os.Getenv("ROP_DISCOVERY_FILTERS"),
+		DiscoverTopics:   os.Getenv("ROP_DISCOVER_TOPICS"),
+		LogLevel:         envOrDefault("ROP_LOG_LEVEL", "info"),
 	}
 
 	// Parse integers
-	cfg.Parallelism = envOrDefaultInt("GLOBAL_PARALLELISM_LIMIT", 2)
+	cfg.Parallelism = envOrDefaultInt("ROP_PARALLELISM", 2)
 
 	// Parse durations from seconds
-	jobTimeoutSec := envOrDefaultInt("JOB_TIMEOUT_SECONDS", 1800)
+	jobTimeoutSec := envOrDefaultInt("ROP_JOB_TIMEOUT", 1800)
 	cfg.JobTimeout = time.Duration(jobTimeoutSec) * time.Second
 
-	gracePeriodSec := envOrDefaultInt("SHUTDOWN_GRACE_PERIOD", 300)
+	gracePeriodSec := envOrDefaultInt("ROP_SHUTDOWN_GRACE_PERIOD", 300)
 	cfg.GracePeriod = time.Duration(gracePeriodSec) * time.Second
 
 	// Parse booleans
-	cfg.CronSkipDiscovery = envOrDefaultBool("CRON_SKIP_DISCOVERY", false)
-	cfg.WebhookEnabled = envOrDefaultBool("WEBHOOK_SERVER_ENABLED", true)
-	cfg.SkipForks = envOrDefaultBool("AUTODISCOVER_SKIP_FORKS", false)
+	cfg.CronSkipDiscovery = envOrDefaultBool("ROP_CRON_SKIP_DISCOVERY", false)
+	cfg.WebhookEnabled = envOrDefaultBool("ROP_WEBHOOK_ENABLED", true)
+	cfg.SkipForks = envOrDefaultBool("ROP_SKIP_FORKS", false)
 
 	// Auto-generate session secret if not provided
 	if cfg.SessionSecret == "" {
@@ -131,48 +131,48 @@ func Load() (*Config, error) {
 	}
 
 	// Parse security limits
-	cfg.MaxRequestBody = envOrDefaultInt64("RENOVATEOP_MAX_REQUEST_BODY", 2*1024*1024)
+	cfg.MaxRequestBody = envOrDefaultInt64("ROP_MAX_REQUEST_BODY", 2*1024*1024)
 
 	// Parse image cache TTL
-	cfg.ImageCacheTTL = envOrDefaultDuration("RENOVATEOP_IMAGE_CACHE_TTL", 24*time.Hour)
+	cfg.ImageCacheTTL = envOrDefaultDuration("ROP_IMAGE_CACHE_TTL", 24*time.Hour)
 
 	// Validate required fields
 	if cfg.PlatformEndpoint == "" {
-		return nil, fmt.Errorf("PLATFORM_ENDPOINT is required but not set")
+		return nil, fmt.Errorf("ROP_PLATFORM_ENDPOINT is required but not set")
 	}
 
 	if cfg.PlatformToken == "" {
-		return nil, fmt.Errorf("RENOVATEOP_TOKEN environment variable is required but not set")
+		return nil, fmt.Errorf("RENOVATE_TOKEN environment variable is required but not set")
 	}
 
 	// Populate the flat map for GetValue
 	configValues = map[string]string{
-		"SQLITE_PATH":                  cfg.SQLitePath,
-		"RENOVATEOP_IMAGE":             cfg.RenovateImage,
-		"CACHE_VOLUME":                 cfg.CacheVolume,
-		"CONTAINER_NETWORK":            cfg.ContainerNetwork,
-		"IMAGE_PULL_POLICY":            cfg.ImagePullPolicy,
-		"GLOBAL_PARALLELISM_LIMIT":     strconv.Itoa(cfg.Parallelism),
-		"JOB_TIMEOUT_SECONDS":          strconv.Itoa(jobTimeoutSec),
-		"SHUTDOWN_GRACE_PERIOD":        strconv.Itoa(gracePeriodSec),
-		"PLATFORM":                     cfg.Platform,
-		"PLATFORM_ENDPOINT":            cfg.PlatformEndpoint,
-		"RENOVATEOP_TOKEN":             cfg.PlatformToken,
-		"CRON_SCHEDULE":                cfg.CronSchedule,
-		"CRON_SKIP_DISCOVERY":          strconv.FormatBool(cfg.CronSkipDiscovery),
-		"SERVER_PORT":                  cfg.ServerPort,
-		"WEBHOOK_SERVER_ENABLED":       strconv.FormatBool(cfg.WebhookEnabled),
-		"WEBHOOK_SECRET":               cfg.WebhookSecret,
-		"OIDC_ISSUER_URL":              cfg.OIDCIssuerURL,
-		"OIDC_CLIENT_ID":               cfg.OIDCClientID,
-		"OIDC_CLIENT_SECRET":           cfg.OIDCClientSecret,
-		"OIDC_REDIRECT_URL":            cfg.OIDCRedirectURL,
-		"SESSION_SECRET":               cfg.SessionSecret,
-		"RENOVATEOP_DISCOVERY_FILTERS": cfg.DiscoveryFilters,
-		"RENOVATEOP_DISCOVER_TOPICS":   cfg.DiscoverTopics,
-		"AUTODISCOVER_SKIP_FORKS":      strconv.FormatBool(cfg.SkipForks),
-		"RENOVATEOP_LOG_LEVEL":         cfg.LogLevel,
-		"RENOVATEOP_MAX_REQUEST_BODY":  strconv.FormatInt(cfg.MaxRequestBody, 10),
+		"ROP_SQLITE_PATH":           cfg.SQLitePath,
+		"ROP_IMAGE":                 cfg.RenovateImage,
+		"ROP_CACHE_VOLUME":          cfg.CacheVolume,
+		"ROP_CONTAINER_NETWORK":     cfg.ContainerNetwork,
+		"ROP_IMAGE_PULL_POLICY":     cfg.ImagePullPolicy,
+		"ROP_PARALLELISM":           strconv.Itoa(cfg.Parallelism),
+		"ROP_JOB_TIMEOUT":           strconv.Itoa(jobTimeoutSec),
+		"ROP_SHUTDOWN_GRACE_PERIOD": strconv.Itoa(gracePeriodSec),
+		"ROP_PLATFORM":              cfg.Platform,
+		"ROP_PLATFORM_ENDPOINT":     cfg.PlatformEndpoint,
+		"RENOVATE_TOKEN":            cfg.PlatformToken,
+		"ROP_CRON_SCHEDULE":         cfg.CronSchedule,
+		"ROP_CRON_SKIP_DISCOVERY":   strconv.FormatBool(cfg.CronSkipDiscovery),
+		"ROP_SERVER_PORT":           cfg.ServerPort,
+		"ROP_WEBHOOK_ENABLED":       strconv.FormatBool(cfg.WebhookEnabled),
+		"ROP_WEBHOOK_SECRET":        cfg.WebhookSecret,
+		"ROP_OIDC_ISSUER_URL":       cfg.OIDCIssuerURL,
+		"ROP_OIDC_CLIENT_ID":        cfg.OIDCClientID,
+		"ROP_OIDC_CLIENT_SECRET":    cfg.OIDCClientSecret,
+		"ROP_OIDC_REDIRECT_URL":     cfg.OIDCRedirectURL,
+		"ROP_SESSION_SECRET":        cfg.SessionSecret,
+		"ROP_DISCOVERY_FILTERS":     cfg.DiscoveryFilters,
+		"ROP_DISCOVER_TOPICS":       cfg.DiscoverTopics,
+		"ROP_SKIP_FORKS":            strconv.FormatBool(cfg.SkipForks),
+		"ROP_LOG_LEVEL":             cfg.LogLevel,
+		"ROP_MAX_REQUEST_BODY":      strconv.FormatInt(cfg.MaxRequestBody, 10),
 	}
 
 	return cfg, nil

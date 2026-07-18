@@ -90,7 +90,7 @@ func (s *Server) Start() {
 	// UI static file serving (last — catch-all)
 	s.registerUIRoutes(router)
 
-	port := config.GetValue("SERVER_PORT")
+	port := config.GetValue("ROP_SERVER_PORT")
 	if port == "" {
 		port = "8081"
 	}
@@ -143,7 +143,7 @@ type RenovateJobInfo struct {
 }
 
 // buildDebugModeInfo computes the effective debug mode state, considering
-// the DB setting and any LOG_LEVEL environment variable override.
+// the DB setting and any RENOVATE_LOG_LEVEL environment variable override.
 func buildDebugModeInfo(opts *api.RenovateExecutionOptions) *api.DebugModeInfo {
 	// Determine base state from DB (nil means default=debug)
 	dbDebug := true
@@ -152,14 +152,14 @@ func buildDebugModeInfo(opts *api.RenovateExecutionOptions) *api.DebugModeInfo {
 	}
 
 	// Check for env override
-	envVal := os.Getenv("LOG_LEVEL")
+	envVal := os.Getenv("RENOVATE_LOG_LEVEL")
 	if envVal != "" {
 		// Env override is active
 		enabled := (envVal == "debug")
 		return &api.DebugModeInfo{
 			Enabled: enabled,
 			EnvOverride: &api.EnvOverrideInfo{
-				Name:  "LOG_LEVEL",
+				Name:  "RENOVATE_LOG_LEVEL",
 				Value: envVal,
 			},
 		}

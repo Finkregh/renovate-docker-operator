@@ -22,8 +22,8 @@ func newTestStore(t *testing.T) *SQLiteStore {
 	t.Helper()
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	// Set required env for seeding.
-	t.Setenv("PLATFORM_ENDPOINT", "https://git.example.com")
-	t.Setenv("WEBHOOK_SECRET", "secret1,secret2")
+	t.Setenv("ROP_PLATFORM_ENDPOINT", "https://git.example.com")
+	t.Setenv("ROP_WEBHOOK_SECRET", "secret1,secret2")
 
 	store, err := New(dbPath, slog.Default())
 	if err != nil {
@@ -35,8 +35,8 @@ func newTestStore(t *testing.T) *SQLiteStore {
 
 func TestNew_CreatesDB(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-	t.Setenv("PLATFORM_ENDPOINT", "https://git.example.com")
-	t.Setenv("WEBHOOK_SECRET", "")
+	t.Setenv("ROP_PLATFORM_ENDPOINT", "https://git.example.com")
+	t.Setenv("ROP_WEBHOOK_SECRET", "")
 
 	store, err := New(dbPath, slog.Default())
 	if err != nil {
@@ -65,8 +65,8 @@ func TestNew_CreatesDB(t *testing.T) {
 
 func TestMigrations_Idempotent(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-	t.Setenv("PLATFORM_ENDPOINT", "https://git.example.com")
-	t.Setenv("WEBHOOK_SECRET", "")
+	t.Setenv("ROP_PLATFORM_ENDPOINT", "https://git.example.com")
+	t.Setenv("ROP_WEBHOOK_SECRET", "")
 
 	store1, err := New(dbPath, slog.Default())
 	if err != nil {
@@ -231,8 +231,8 @@ func TestStandardWebhookSignature(t *testing.T) {
 	token := "whsec_" + base64.StdEncoding.EncodeToString(rawKey)
 
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-	t.Setenv("PLATFORM_ENDPOINT", "https://git.example.com")
-	t.Setenv("WEBHOOK_SECRET", token)
+	t.Setenv("ROP_PLATFORM_ENDPOINT", "https://git.example.com")
+	t.Setenv("ROP_WEBHOOK_SECRET", token)
 
 	store, err := New(dbPath, slog.Default())
 	if err != nil {

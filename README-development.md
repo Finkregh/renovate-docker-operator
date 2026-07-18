@@ -42,10 +42,10 @@ just test-integration
 # Lint + test in one command
 just check
 
-# Run locally (requires Docker and PLATFORM_ENDPOINT)
-export PLATFORM_ENDPOINT="https://git.example.com"
-export RENOVATEOP_TOKEN="your-token"
-export SQLITE_PATH="./test.db"
+# Run locally (requires Docker and ROP_PLATFORM_ENDPOINT)
+export ROP_PLATFORM_ENDPOINT="https://git.example.com"
+export ROP_TOKEN="your-token"
+export ROP_SQLITE_PATH="./test.db"
 just run
 ```
 
@@ -94,8 +94,8 @@ All configuration is environment-variable driven via the singleton in `config/`.
 
 - Declare new config values in the config schema (with `Optional`/`Required` and defaults)
 - Access config values via `config.GetValue()` — never read `os.Getenv` directly elsewhere
-- The operator reads `RENOVATEOP_TOKEN` and passes it to containers as `RENOVATE_TOKEN`
-- All `RENOVATE_*` env vars from the operator process are passed through to containers
+- The operator reads `ROP_TOKEN` and passes it to containers as `RENOVATE_TOKEN`
+- All `RENOVATE_*` env vars from the operator process are passed through to containers (always override)
 
 ### 4. Error Handling
 
@@ -142,14 +142,14 @@ Health is exposed via `/healthz` endpoint on the HTTP server. The executor verif
 ## Key Architectural Decisions
 
 - **Single-process design** — one binary runs the scheduler, executor, webhook server, and UI. No leader election needed (unlike the upstream K8s operator).
-- **Platform credentials** are passed via environment variables (`RENOVATEOP_TOKEN`) — the operator injects them into containers as `RENOVATE_TOKEN`.
+- **Platform credentials** are passed via environment variables (`ROP_TOKEN`) — the operator injects them into containers as `RENOVATE_TOKEN`.
 - **Webhook server** handles Forgejo events at `/webhook/v1/forgejo?job=<name>`. Events are validated (HMAC-SHA256 or Standard Webhooks signatures), filtered (branch, event type), and then schedule projects for immediate execution.
 - **Webhook sync is stateless** — after each discovery run, `statestore.SyncWebhooks` ensures the operator's webhook exists on every discovered project and removes it from repos that were removed during reconciliation. Hooks are identified by their delivery URL. Sync failures are logged, never block discovery (fail open).
 - **Discovery uses Renovate itself** — a discovery container runs Renovate with `autodiscover: true` and writes discovered repos to a JSON file, which is read from the container's stdout.
 - **Executor dispatch loop** — polls every 10 seconds, collects all `scheduled` projects sorted by priority (descending) then oldest-wait, and dispatches Docker containers up to the parallelism limit. Container exit events trigger immediate re-dispatch.
-- **Global parallelism limit** — `GLOBAL_PARALLELISM_LIMIT` env var caps total concurrent Renovate containers. Per-job `Spec.Parallelism` is still enforced as an additional gate.
+- **Global parallelism limit** — `ROP_GLOBAL_PARALLELISM` env var caps total concurrent Renovate containers. Per-job `Spec.Parallelism` is still enforced as an additional gate.
 - **Anti-starvation via priority-then-oldest-wait sort** — candidates are sorted first by `Priority` descending, then by the oldest `LastRun` time. Among equal-priority candidates, the job that has been waiting longest dispatches first.
-- **UI sub-path (`BASE_PATH`)** — the UI, API, auth and health routes can be served under a sub-path. `server.go` mounts all routes on a `PathPrefix(basePath)` subrouter; the frontend builds all runtime URLs from `window.__BASE_PATH__`.
+- **UI sub-path (`ROP_BASE_PATH`)** — the UI, API, auth and health routes can be served under a sub-path. `server.go` mounts all routes on a `PathPrefix(basePath)` subrouter; the frontend builds all runtime URLs from `window.__BASE_PATH__`.
 - **Docker stream demultiplexing** — container logs may be in Docker multiplexed format (8-byte frame headers) or raw (Podman/TTY). The `isDockerMultiplexed()` heuristic detects the format and `stdcopy.StdCopy` demuxes when needed.
 
 ## Maintaining This Document

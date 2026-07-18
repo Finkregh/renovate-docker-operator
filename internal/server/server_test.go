@@ -59,8 +59,8 @@ func TestVersionEndpoint(t *testing.T) {
 }
 
 func TestBuildDebugModeInfo_NoEnvOverride(t *testing.T) {
-	t.Setenv("LOG_LEVEL", "")
-	os.Unsetenv("LOG_LEVEL")
+	t.Setenv("RENOVATE_LOG_LEVEL", "")
+	_ = os.Unsetenv("RENOVATE_LOG_LEVEL")
 
 	opts := &api.RenovateExecutionOptions{Debug: true}
 	info := buildDebugModeInfo(opts)
@@ -74,8 +74,8 @@ func TestBuildDebugModeInfo_NoEnvOverride(t *testing.T) {
 }
 
 func TestBuildDebugModeInfo_NoEnvOverride_DebugFalse(t *testing.T) {
-	t.Setenv("LOG_LEVEL", "")
-	os.Unsetenv("LOG_LEVEL")
+	t.Setenv("RENOVATE_LOG_LEVEL", "")
+	_ = os.Unsetenv("RENOVATE_LOG_LEVEL")
 
 	opts := &api.RenovateExecutionOptions{Debug: false}
 	info := buildDebugModeInfo(opts)
@@ -89,8 +89,8 @@ func TestBuildDebugModeInfo_NoEnvOverride_DebugFalse(t *testing.T) {
 }
 
 func TestBuildDebugModeInfo_NilOptions(t *testing.T) {
-	t.Setenv("LOG_LEVEL", "")
-	os.Unsetenv("LOG_LEVEL")
+	t.Setenv("RENOVATE_LOG_LEVEL", "")
+	_ = os.Unsetenv("RENOVATE_LOG_LEVEL")
 
 	info := buildDebugModeInfo(nil)
 
@@ -103,20 +103,20 @@ func TestBuildDebugModeInfo_NilOptions(t *testing.T) {
 }
 
 func TestBuildDebugModeInfo_EnvOverrideInfo(t *testing.T) {
-	t.Setenv("LOG_LEVEL", "info")
+	t.Setenv("RENOVATE_LOG_LEVEL", "info")
 
 	opts := &api.RenovateExecutionOptions{Debug: true}
 	info := buildDebugModeInfo(opts)
 
-	// Env override wins: LOG_LEVEL=info means debug is NOT enabled
+	// Env override wins: RENOVATE_LOG_LEVEL=info means debug is NOT enabled
 	if info.Enabled {
-		t.Error("expected Enabled=false when LOG_LEVEL=info overrides")
+		t.Error("expected Enabled=false when RENOVATE_LOG_LEVEL=info overrides")
 	}
 	if info.EnvOverride == nil {
 		t.Fatal("expected EnvOverride to be set")
 	}
-	if info.EnvOverride.Name != "LOG_LEVEL" {
-		t.Errorf("expected EnvOverride.Name='LOG_LEVEL', got %q", info.EnvOverride.Name)
+	if info.EnvOverride.Name != "RENOVATE_LOG_LEVEL" {
+		t.Errorf("expected EnvOverride.Name='RENOVATE_LOG_LEVEL', got %q", info.EnvOverride.Name)
 	}
 	if info.EnvOverride.Value != "info" {
 		t.Errorf("expected EnvOverride.Value='info', got %q", info.EnvOverride.Value)
@@ -124,20 +124,20 @@ func TestBuildDebugModeInfo_EnvOverrideInfo(t *testing.T) {
 }
 
 func TestBuildDebugModeInfo_EnvOverrideDebug(t *testing.T) {
-	t.Setenv("LOG_LEVEL", "debug")
+	t.Setenv("RENOVATE_LOG_LEVEL", "debug")
 
 	opts := &api.RenovateExecutionOptions{Debug: false}
 	info := buildDebugModeInfo(opts)
 
-	// Env override wins: LOG_LEVEL=debug means debug IS enabled
+	// Env override wins: RENOVATE_LOG_LEVEL=debug means debug IS enabled
 	if !info.Enabled {
-		t.Error("expected Enabled=true when LOG_LEVEL=debug overrides")
+		t.Error("expected Enabled=true when RENOVATE_LOG_LEVEL=debug overrides")
 	}
 	if info.EnvOverride == nil {
 		t.Fatal("expected EnvOverride to be set")
 	}
-	if info.EnvOverride.Name != "LOG_LEVEL" {
-		t.Errorf("expected EnvOverride.Name='LOG_LEVEL', got %q", info.EnvOverride.Name)
+	if info.EnvOverride.Name != "RENOVATE_LOG_LEVEL" {
+		t.Errorf("expected EnvOverride.Name='RENOVATE_LOG_LEVEL', got %q", info.EnvOverride.Name)
 	}
 	if info.EnvOverride.Value != "debug" {
 		t.Errorf("expected EnvOverride.Value='debug', got %q", info.EnvOverride.Value)
