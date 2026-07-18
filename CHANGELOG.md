@@ -2,6 +2,19 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.4.0](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/compare/a2aa5f396663105f7ee9b3aa2202ab5f2c63f66b..v0.4.0) - 2026-07-18
+#### Features
+- add HTTP access log middleware and webhook rejection logging - ([b7d965e](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/b7d965ed1d06056ac8c1b49d6def219b5604e4e4)) - Oluf Lorenzen
+#### Bug Fixes
+- (**ci**) add retry loop to 'Find release by tag' step - ([c83f2c8](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/c83f2c87cbfb954025582522f5254333347003c8)) - Oluf Lorenzen
+- (**webhook**) return descriptive errors, seed webhook_enabled, add UI toggle - ([559d80e](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/559d80e33174b1e9a9ceb508cf842335184cb5f9)) - Oluf Lorenzen
+- security hardening and bug fixes (P0-P3 scan remediation) - ([a2aa5f3](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/a2aa5f396663105f7ee9b3aa2202ab5f2c63f66b)) - Oluf Lorenzen
+#### Miscellaneous Chores
+- (**config**) migrate config renovate.json - ([908e4ff](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/908e4ff02fe7cdce799a2437849205aeafb99918)) - renovate-forgejo
+- mark completed scan remediation files with DONE- prefix - ([e0f9fc1](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/e0f9fc15a1a872f0ac94fba4f612837323044782)) - Oluf Lorenzen
+
+- - -
+
 ## [v0.3.2](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/compare/e9b9368311c3033d42c8da7122a7e4ea4ac3a0a7..v0.3.2) - 2026-07-18
 #### Miscellaneous Chores
 - move envvars to Dockerfile - ([60a7f50](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/60a7f50b87d10b5dfdf3efd3de56acd7eeaa7bb4)) - Oluf Lorenzen
