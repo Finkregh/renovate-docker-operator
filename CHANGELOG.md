@@ -2,6 +2,14 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.3.2](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/compare/e9b9368311c3033d42c8da7122a7e4ea4ac3a0a7..v0.3.2) - 2026-07-18
+#### Miscellaneous Chores
+- move envvars to Dockerfile - ([60a7f50](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/60a7f50b87d10b5dfdf3efd3de56acd7eeaa7bb4)) - Oluf Lorenzen
+- separate envvars - ([83a7f4f](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/83a7f4fa951993932d7a1d3ef2a44f98faa69aef)) - Oluf Lorenzen
+- move HEALTHCHECK to Dockerfile - ([e9b9368](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/e9b9368311c3033d42c8da7122a7e4ea4ac3a0a7)) - Oluf Lorenzen
+
+- - -
+
 ## [v0.3.1](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/compare/53a1a130933a5e73b447dc926e4f2f5d6e67e42b..v0.3.1) - 2026-07-17
 #### Bug Fixes
 - (**deps**) update dependency go to v1.26.5 - ([4bb4d7a](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/4bb4d7a8cf59d08816d313d13f6f677dfbef89e9)) - Renovate Bot
