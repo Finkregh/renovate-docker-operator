@@ -48,6 +48,45 @@ COPY --chown=operator:operator static/ /app/static/
 # Overlay downloaded JS dependencies (tailwind, babel, react bundle)
 COPY --from=js-downloader /workspace/static/js /app/static/js
 
+# Environment variable defaults (operator config — visible via `docker inspect`)
+# Required (no default):
+ENV PLATFORM_ENDPOINT=""
+ENV RENOVATEOP_TOKEN=""
+
+# Platform
+ENV PLATFORM="forgejo"
+ENV RENOVATEOP_IMAGE="renovate/renovate:latest"
+
+# Scheduling
+ENV CRON_SCHEDULE="0 */4 * * *"
+ENV GLOBAL_PARALLELISM_LIMIT="2"
+
+# Server
+ENV SERVER_PORT="8081"
+ENV RENOVATEOP_LOG_LEVEL="info"
+ENV CONTAINER_NETWORK=""
+
+# Webhook
+ENV WEBHOOK_SERVER_ENABLED="true"
+ENV WEBHOOK_SECRET=""
+
+# Auth (leave blank for no-auth mode)
+ENV OIDC_ISSUER_URL=""
+ENV OIDC_CLIENT_ID=""
+ENV OIDC_CLIENT_SECRET=""
+ENV OIDC_REDIRECT_URL=""
+ENV SESSION_SECRET=""
+
+# Discovery
+ENV RENOVATEOP_DISCOVERY_FILTERS=""
+ENV RENOVATEOP_DISCOVER_TOPICS=""
+ENV AUTODISCOVER_SKIP_FORKS="false"
+
+# Data
+ENV SQLITE_PATH="/data/renovate.db"
+ENV CACHE_VOLUME="renovate-cache"
+ENV IMAGE_PULL_POLICY="if-not-present"
+
 USER operator
 
 EXPOSE 8081
