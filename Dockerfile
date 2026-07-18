@@ -51,5 +51,7 @@ COPY --from=js-downloader /workspace/static/js /app/static/js
 USER operator
 
 EXPOSE 8081
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=5 \
+    CMD sh -c 'curl -f --max-time 2 "http://localhost:8081/healthz" || exit 1'
 
 ENTRYPOINT ["/app/renovate-docker-operator"]
