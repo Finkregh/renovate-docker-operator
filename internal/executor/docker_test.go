@@ -157,6 +157,7 @@ func TestBuildEnvVars_Basic(t *testing.T) {
 
 	// Clear env vars that would interfere
 	t.Setenv("RENOVATEOP_TOKEN", "")
+	t.Setenv("LOG_LEVEL", "")
 
 	job := &api.RenovateJob{
 		Name: "test-job",
@@ -177,6 +178,7 @@ func TestBuildEnvVars_Basic(t *testing.T) {
 	assertEnv(t, envMap, "RENOVATE_LOG_FORMAT", "json")
 	assertEnv(t, envMap, "NODE_NO_WARNINGS", "1")
 	assertEnv(t, envMap, "RENOVATE_BASE_DIR", "/tmp/renovate")
+	assertEnv(t, envMap, "LOG_LEVEL", "debug")
 
 	// Check provider env vars
 	assertEnv(t, envMap, "RENOVATE_PLATFORM", "forgejo")
@@ -257,15 +259,90 @@ func TestBuildEnvVars_ExtraEnvOverrides(t *testing.T) {
 	assertEnv(t, envMap, "CUSTOM_VAR", "custom-value")
 }
 
-func TestBuildEnvVars_DebugMode(t *testing.T) {
+func TestBuildEnvVars_DebugModeTrue(t *testing.T) {
 	e := newTestExecutor(t)
 	t.Setenv("RENOVATEOP_TOKEN", "")
+	t.Setenv("LOG_LEVEL", "")
 
 	job := &api.RenovateJob{
 		Name: "debug-job",
 		Status: api.RenovateJobStatus{
 			ExecutionOptions: &api.RenovateExecutionOptions{
 				Debug: true,
+			},
+		},
+	}
+
+	result := e.buildEnvVars(job, false)
+	envMap := envSliceToMap(result)
+
+	assertEnv(t, envMap, "LOG_LEVEL", "debug")
+}
+
+func TestBuildEnvVars_DefaultLogLevelDebug(t *testing.T) {
+	e := newTestExecutor(t)
+	t.Setenv("RENOVATEOP_TOKEN", "")
+	t.Setenv("LOG_LEVEL", "")
+
+	// No ExecutionOptions set at all — should default to debug
+	job := &api.RenovateJob{
+		Name: "no-options-job",
+	}
+
+	result := e.buildEnvVars(job, false)
+	envMap := envSliceToMap(result)
+
+	assertEnv(t, envMap, "LOG_LEVEL", "debug")
+}
+
+func TestBuildEnvVars_DebugModeFalse(t *testing.T) {
+	e := newTestExecutor(t)
+	t.Setenv("RENOVATEOP_TOKEN", "")
+	t.Setenv("LOG_LEVEL", "")
+
+	// User explicitly disabled debug mode
+	job := &api.RenovateJob{
+		Name: "no-debug-job",
+		Status: api.RenovateJobStatus{
+			ExecutionOptions: &api.RenovateExecutionOptions{
+				Debug: false,
+			},
+		},
+	}
+
+	result := e.buildEnvVars(job, false)
+	envMap := envSliceToMap(result)
+
+	assertEnv(t, envMap, "LOG_LEVEL", "info")
+}
+
+func TestBuildEnvVars_LogLevelEnvOverride(t *testing.T) {
+	e := newTestExecutor(t)
+	t.Setenv("RENOVATEOP_TOKEN", "")
+	t.Setenv("LOG_LEVEL", "warn")
+
+	// Env override should win over default debug
+	job := &api.RenovateJob{
+		Name: "env-override-job",
+	}
+
+	result := e.buildEnvVars(job, false)
+	envMap := envSliceToMap(result)
+
+	assertEnv(t, envMap, "LOG_LEVEL", "warn")
+}
+
+func TestBuildEnvVars_LogLevelEnvOverrideBeatsDebugFalse(t *testing.T) {
+	e := newTestExecutor(t)
+	t.Setenv("RENOVATEOP_TOKEN", "")
+	t.Setenv("LOG_LEVEL", "debug")
+
+	// Even when DB says debug=false, env override wins
+	job := &api.RenovateJob{
+		Name: "env-wins-job",
+		Status: api.RenovateJobStatus{
+			ExecutionOptions: &api.RenovateExecutionOptions{
+				Debug: false,
 			},
 		},
 	}

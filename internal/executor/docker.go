@@ -767,9 +767,17 @@ func (e *DockerExecutor) buildEnvVars(job *api.RenovateJob, isDiscovery bool) []
 		}
 	}
 
-	// Debug mode
-	if job.Status.ExecutionOptions != nil && job.Status.ExecutionOptions.Debug {
+	// Log level: default to debug (required for complete PR activity parsing).
+	// Priority: default(debug) < DB setting < operator env LOG_LEVEL < ExtraEnv
+	if job.Status.ExecutionOptions != nil && !job.Status.ExecutionOptions.Debug {
+		envMap["LOG_LEVEL"] = "info"
+	} else {
 		envMap["LOG_LEVEL"] = "debug"
+	}
+
+	// Operator environment override takes priority over DB setting
+	if lvl := os.Getenv("LOG_LEVEL"); lvl != "" {
+		envMap["LOG_LEVEL"] = lvl
 	}
 
 	// Discovery-specific env vars

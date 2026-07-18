@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -279,4 +280,70 @@ func TestStandardWebhookSignature(t *testing.T) {
 	if valid {
 		t.Fatal("expected wrong signature to be rejected")
 	}
+}
+
+func TestMigration0002_DebugModeDefault(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+
+	// Open raw DB and apply only migration0001 manually
+	db, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_busy_timeout=5000&_foreign_keys=ON")
+	if err != nil {
+		t.Fatalf("sql.Open failed: %v", err)
+	}
+
+	_, err = db.ExecContext(context.Background(), migration0001)
+	if err != nil {
+		t.Fatalf("migration0001 failed: %v", err)
+	}
+	_, err = db.ExecContext(context.Background(), `INSERT INTO schema_migrations (version) VALUES (1)`)
+	if err != nil {
+		t.Fatalf("insert schema_migrations failed: %v", err)
+	}
+
+	// Insert a job with debug_mode=0 (old default)
+	_, err = db.ExecContext(context.Background(), `INSERT INTO renovate_jobs (name) VALUES ('test-job')`)
+	if err != nil {
+		t.Fatalf("insert job failed: %v", err)
+	}
+
+	// Verify it has debug_mode=0
+	var debugMode int
+	err = db.QueryRowContext(context.Background(), `SELECT debug_mode FROM renovate_jobs WHERE name = 'test-job'`).Scan(&debugMode)
+	if err != nil {
+		t.Fatalf("query debug_mode failed: %v", err)
+	}
+	if debugMode != 0 {
+		t.Fatalf("expected debug_mode=0 before migration, got %d", debugMode)
+	}
+
+	// Apply migration0002
+	_, err = db.ExecContext(context.Background(), migration0002)
+	if err != nil {
+		t.Fatalf("migration0002 failed: %v", err)
+	}
+
+	// Verify existing job now has debug_mode=1
+	err = db.QueryRowContext(context.Background(), `SELECT debug_mode FROM renovate_jobs WHERE name = 'test-job'`).Scan(&debugMode)
+	if err != nil {
+		t.Fatalf("query debug_mode after migration failed: %v", err)
+	}
+	if debugMode != 1 {
+		t.Fatalf("expected debug_mode=1 after migration, got %d", debugMode)
+	}
+
+	// Insert a new job (should default to 1)
+	_, err = db.ExecContext(context.Background(), `INSERT INTO renovate_jobs (name) VALUES ('new-job')`)
+	if err != nil {
+		t.Fatalf("insert new job failed: %v", err)
+	}
+
+	err = db.QueryRowContext(context.Background(), `SELECT debug_mode FROM renovate_jobs WHERE name = 'new-job'`).Scan(&debugMode)
+	if err != nil {
+		t.Fatalf("query new job debug_mode failed: %v", err)
+	}
+	if debugMode != 1 {
+		t.Fatalf("expected new job debug_mode=1, got %d", debugMode)
+	}
+
+	_ = db.Close()
 }

@@ -10,6 +10,7 @@ import (
 // The schema_version table tracks which have been applied.
 var migrations = []string{
 	migration0001,
+	migration0002,
 }
 
 const migration0001 = `
@@ -83,6 +84,38 @@ CREATE TABLE IF NOT EXISTS job_logs (
 CREATE INDEX IF NOT EXISTS idx_projects_job_status ON projects(job_name, status);
 CREATE INDEX IF NOT EXISTS idx_projects_job_name ON projects(job_name, full_name);
 CREATE INDEX IF NOT EXISTS idx_execution_history_project ON execution_history(job_name, project_name);
+`
+
+// migration0002 changes the debug_mode default from 0 to 1 (debug logging on by default)
+// and updates all existing jobs to enable debug mode.
+const migration0002 = `
+UPDATE renovate_jobs SET debug_mode = 1 WHERE debug_mode = 0;
+
+-- Recreate table with new DEFAULT 1 for debug_mode
+ALTER TABLE renovate_jobs RENAME TO renovate_jobs_old;
+
+CREATE TABLE renovate_jobs (
+    name TEXT PRIMARY KEY,
+    schedule TEXT NOT NULL DEFAULT '0 */4 * * *',
+    image TEXT NOT NULL DEFAULT 'renovate/renovate:latest',
+    platform TEXT NOT NULL DEFAULT 'forgejo',
+    endpoint TEXT NOT NULL DEFAULT '',
+    discovery_filters TEXT NOT NULL DEFAULT '[]',
+    discover_topics TEXT NOT NULL DEFAULT '[]',
+    skip_forks INTEGER NOT NULL DEFAULT 0,
+    skip_pending_deletion INTEGER NOT NULL DEFAULT 0,
+    secret_ref TEXT NOT NULL DEFAULT '',
+    extra_env TEXT NOT NULL DEFAULT '[]',
+    parallelism INTEGER NOT NULL DEFAULT 2,
+    webhook_enabled INTEGER NOT NULL DEFAULT 0,
+    webhook_auth_enabled INTEGER NOT NULL DEFAULT 0,
+    webhook_sync_enabled INTEGER NOT NULL DEFAULT 0,
+    allowed_groups TEXT NOT NULL DEFAULT '[]',
+    debug_mode INTEGER NOT NULL DEFAULT 1
+);
+
+INSERT INTO renovate_jobs SELECT * FROM renovate_jobs_old;
+DROP TABLE renovate_jobs_old;
 `
 
 // runMigrations applies any pending schema migrations to the database.
