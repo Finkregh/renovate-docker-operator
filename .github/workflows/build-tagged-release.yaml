@@ -58,11 +58,25 @@ jobs:
           REPO: ${{ github.repository }}
           VERSION: ${{ steps.version.outputs.VERSION }}
         run: |
-          RELEASE_ID=$(curl -s --fail \
-            -H "Authorization: token ${TOKEN}" \
-            "${SERVER}/api/v1/repos/${REPO}/releases/tags/${VERSION}" \
-            | jq -r '.id')
-          echo "RELEASE_ID=${RELEASE_ID}" >> "$GITHUB_OUTPUT"
+          for i in $(seq 1 12); do
+            RESPONSE=$(curl -s -w '\n%{http_code}' \
+              -H "Authorization: token ${TOKEN}" \
+              "${SERVER}/api/v1/repos/${REPO}/releases/tags/${VERSION}")
+            HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+            BODY=$(echo "$RESPONSE" | sed '$d')
+
+            if [ "$HTTP_CODE" = "200" ]; then
+              RELEASE_ID=$(echo "$BODY" | jq -r '.id')
+              echo "RELEASE_ID=${RELEASE_ID}" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            echo "Attempt $i/12: HTTP ${HTTP_CODE} — $(echo "$BODY" | jq -r '.message // empty')"
+            sleep 10
+          done
+
+          echo "::error::Release for tag ${VERSION} not found after 2 minutes (last HTTP ${HTTP_CODE})"
+          exit 1
 
       - name: Attach binaries to release
         env:
