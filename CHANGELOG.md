@@ -2,6 +2,25 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.6.0](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/compare/f17dc9e2ec5da348093b32bb02f8d41604ce550d..v0.6.0) - 2026-07-18
+#### Features
+- enrich access log with webhook auth fields - ([4c153ab](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/4c153ab6683672d1a19a36cc550b234f0c4a748c)) - Oluf Lorenzen
+- auto-generate webhook secret with settings table - ([6c7abb1](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/6c7abb15cee47c3f44c62355034ef881058063ef)) - Oluf Lorenzen
+- rename all envvars to ROP_/RENOVATE_ prefix convention - ([8139368](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/8139368f7bcbf456c852f1d84c7f67454e50a619)) - Oluf Lorenzen
+- default to debug logging for PR visibility - ([16e700e](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/16e700ea8cbb1a3bcb60de23148b34c20c27f9b0)) - Oluf Lorenzen
+#### Bug Fixes
+- (**docker**) suppress false-positive SecretsUsedInArgOrEnv warnings - ([5c8d758](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/5c8d7588ea7e1f08e60f2ba1ffeda9df879979ec)) - Oluf Lorenzen
+#### Documentation
+- update README-development.md for standalone Docker architecture - ([1e78a06](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/1e78a06ea899c3ae75c33204a1356da9bdb91379)) - Oluf Lorenzen
+#### Tests
+- add tests for scheduler, executor, and discovery packages - ([f17dc9e](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/f17dc9e2ec5da348093b32bb02f8d41604ce550d)) - Oluf Lorenzen
+#### Continuous Integration
+- dont attach to release, already in generic package registry - ([e3a5f15](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/e3a5f15f59836b0f036ca1f22eca6dc0f0e1c09f)) - Oluf Lorenzen
+#### Miscellaneous Chores
+- cleanup - ([37ae78d](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/37ae78defe86ba342c66acaf2ed1b2f646f57738)) - Oluf Lorenzen
+
+- - -
+
 ## [v0.5.0](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/compare/75d359727fabbd4917181429f7f19f98d45923d0..v0.5.0) - 2026-07-18
 #### Features
 - pass through all RENOVATE_* envvars to spawned containers - ([75d3597](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/75d359727fabbd4917181429f7f19f98d45923d0)) - Oluf Lorenzen
