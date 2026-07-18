@@ -121,7 +121,7 @@ All configuration is via environment variables:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ROP_WEBHOOK_ENABLED` | `true` | Enable webhook endpoint |
-| `ROP_WEBHOOK_SECRET` | *(empty)* | Comma-separated HMAC secrets for webhook validation |
+| `ROP_WEBHOOK_SECRET` | *(auto-generated)* | HMAC secret for webhook validation (optional — auto-generated on first startup, comma-separated for rotation) |
 
 Configure your Forgejo instance to send webhooks to:
 
@@ -137,7 +137,7 @@ For Forgejo instances where you want all repositories covered automatically, use
 
 1. **Target URL**: `http://renovate-operator:8081/webhook/v1/forgejo?job=default`
 2. **Content Type**: `application/json`
-3. **Secret**: Your shared HMAC secret (same value as `ROP_WEBHOOK_SECRET`). This provides HMAC-SHA256 signature authentication via `X-Forgejo-Signature`. The Authorization Header field is optional and redundant when a Secret is configured.
+3. **Secret**: Your HMAC secret (retrieve from the operator — see below). This provides HMAC-SHA256 signature authentication via `X-Forgejo-Signature`. The Authorization Header field is optional and redundant when a Secret is configured.
 4. **Branch Filter**: `main` (or `{main,master}` to match multiple default branches). This filter is applied server-side by Forgejo, so only pushes to matching branches are delivered.
 5. **Events**: Select "Custom Events", then enable:
    - **Push** — triggers Renovate on code changes to the default branch
@@ -145,6 +145,26 @@ For Forgejo instances where you want all repositories covered automatically, use
    - **Issues** (optional) — enables Dependency Dashboard checkbox interactions
 
 > **Note**: The branch filter is applied server-side by Forgejo before delivery. Tag pushes and branch deletions are also filtered out by the operator as defense-in-depth.
+
+#### Generating the Webhook Secret
+
+On first startup, the operator auto-generates a random 40-character HMAC secret
+and stores it in the database. The full secret is logged on first generation.
+Retrieve it later with:
+
+```bash
+sqlite3 data/renovate.db "SELECT value FROM settings WHERE key='webhook_secret'"
+```
+
+Paste this value into your Forgejo webhook's **Secret** field.
+
+To override with a custom secret (e.g., for infrastructure-as-code):
+
+```bash
+export ROP_WEBHOOK_SECRET=$(openssl rand -hex 20)
+```
+
+When `ROP_WEBHOOK_SECRET` is set, it takes precedence over the auto-generated value.
 
 ### Authentication (Optional)
 

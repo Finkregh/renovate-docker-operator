@@ -11,6 +11,7 @@ import (
 var migrations = []string{
 	migration0001,
 	migration0002,
+	migration0003,
 }
 
 const migration0001 = `
@@ -116,6 +117,15 @@ CREATE TABLE renovate_jobs (
 
 INSERT INTO renovate_jobs SELECT * FROM renovate_jobs_old;
 DROP TABLE renovate_jobs_old;
+`
+
+// migration0003 adds a generic key-value settings table for operator configuration.
+const migration0003 = `
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `
 
 // runMigrations applies any pending schema migrations to the database.

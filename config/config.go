@@ -52,7 +52,6 @@ type Config struct {
 	// Server
 	ServerPort     string // ROP_SERVER_PORT (default: 8081)
 	WebhookEnabled bool   // ROP_WEBHOOK_ENABLED (default: true)
-	WebhookSecret  string // ROP_WEBHOOK_SECRET (optional, comma-separated)
 
 	// Auth
 	OIDCIssuerURL    string // ROP_OIDC_ISSUER_URL (optional)
@@ -95,7 +94,6 @@ func Load() (*Config, error) {
 		PlatformToken:    os.Getenv("RENOVATE_TOKEN"),
 		CronSchedule:     envOrDefault("ROP_CRON_SCHEDULE", "0 */4 * * *"),
 		ServerPort:       envOrDefault("ROP_SERVER_PORT", "8081"),
-		WebhookSecret:    os.Getenv("ROP_WEBHOOK_SECRET"),
 		OIDCIssuerURL:    os.Getenv("ROP_OIDC_ISSUER_URL"),
 		OIDCClientID:     os.Getenv("ROP_OIDC_CLIENT_ID"),
 		OIDCClientSecret: os.Getenv("ROP_OIDC_CLIENT_SECRET"),
@@ -162,7 +160,6 @@ func Load() (*Config, error) {
 		"ROP_CRON_SKIP_DISCOVERY":   strconv.FormatBool(cfg.CronSkipDiscovery),
 		"ROP_SERVER_PORT":           cfg.ServerPort,
 		"ROP_WEBHOOK_ENABLED":       strconv.FormatBool(cfg.WebhookEnabled),
-		"ROP_WEBHOOK_SECRET":        cfg.WebhookSecret,
 		"ROP_OIDC_ISSUER_URL":       cfg.OIDCIssuerURL,
 		"ROP_OIDC_CLIENT_ID":        cfg.OIDCClientID,
 		"ROP_OIDC_CLIENT_SECRET":    cfg.OIDCClientSecret,

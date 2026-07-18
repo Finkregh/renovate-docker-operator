@@ -347,3 +347,167 @@ func TestMigration0002_DebugModeDefault(t *testing.T) {
 
 	_ = db.Close()
 }
+
+func TestSettings_GetSetRoundtrip(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	// Non-existent key returns not found.
+	val, found, err := store.GetSetting(ctx, "nonexistent")
+	if err != nil {
+		t.Fatalf("GetSetting(nonexistent) error: %v", err)
+	}
+	if found {
+		t.Fatalf("expected not found, got value=%q", val)
+	}
+
+	// Insert a setting.
+	if err := store.SetSetting(ctx, "test_key", "test_value"); err != nil {
+		t.Fatalf("SetSetting failed: %v", err)
+	}
+
+	// Read it back.
+	val, found, err = store.GetSetting(ctx, "test_key")
+	if err != nil {
+		t.Fatalf("GetSetting(test_key) error: %v", err)
+	}
+	if !found {
+		t.Fatal("expected found=true")
+	}
+	if val != "test_value" {
+		t.Fatalf("expected 'test_value', got %q", val)
+	}
+
+	// Upsert (update existing).
+	if err := store.SetSetting(ctx, "test_key", "updated_value"); err != nil {
+		t.Fatalf("SetSetting (upsert) failed: %v", err)
+	}
+
+	val, found, err = store.GetSetting(ctx, "test_key")
+	if err != nil {
+		t.Fatalf("GetSetting after upsert error: %v", err)
+	}
+	if !found || val != "updated_value" {
+		t.Fatalf("expected 'updated_value', got found=%v val=%q", found, val)
+	}
+}
+
+func TestEnsureWebhookSecret_AutoGeneration(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	t.Setenv("ROP_PLATFORM_ENDPOINT", "https://git.example.com")
+	t.Setenv("ROP_WEBHOOK_SECRET", "")
+
+	store, err := New(dbPath, slog.Default())
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
+	defer func() { _ = store.Close() }()
+
+	// Should have exactly 1 auto-generated token.
+	if len(store.webhookTokens) != 1 {
+		t.Fatalf("expected 1 webhook token, got %d", len(store.webhookTokens))
+	}
+
+	// Token should be 40 hex chars.
+	token := store.webhookTokens[0]
+	if len(token) != 40 {
+		t.Fatalf("expected 40-char token, got %d chars: %q", len(token), token)
+	}
+	for _, c := range token {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			t.Fatalf("token contains non-hex char: %q", token)
+		}
+	}
+
+	// DB should have the same value.
+	ctx := context.Background()
+	dbVal, found, err := store.GetSetting(ctx, "webhook_secret")
+	if err != nil {
+		t.Fatalf("GetSetting error: %v", err)
+	}
+	if !found {
+		t.Fatal("expected webhook_secret in settings table")
+	}
+	if dbVal != token {
+		t.Fatalf("DB value %q != token %q", dbVal, token)
+	}
+}
+
+func TestEnsureWebhookSecret_Persistence(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	t.Setenv("ROP_PLATFORM_ENDPOINT", "https://git.example.com")
+	t.Setenv("ROP_WEBHOOK_SECRET", "")
+
+	// First open: generates secret.
+	store1, err := New(dbPath, slog.Default())
+	if err != nil {
+		t.Fatalf("first New() failed: %v", err)
+	}
+	firstToken := store1.webhookTokens[0]
+	_ = store1.Close()
+
+	// Second open: should load same secret.
+	store2, err := New(dbPath, slog.Default())
+	if err != nil {
+		t.Fatalf("second New() failed: %v", err)
+	}
+	defer func() { _ = store2.Close() }()
+
+	if len(store2.webhookTokens) != 1 {
+		t.Fatalf("expected 1 token on re-open, got %d", len(store2.webhookTokens))
+	}
+	if store2.webhookTokens[0] != firstToken {
+		t.Fatalf("token changed on re-open: %q vs %q", store2.webhookTokens[0], firstToken)
+	}
+}
+
+func TestEnsureWebhookSecret_EnvvarOverride(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	t.Setenv("ROP_PLATFORM_ENDPOINT", "https://git.example.com")
+	t.Setenv("ROP_WEBHOOK_SECRET", "custom-secret-value")
+
+	store, err := New(dbPath, slog.Default())
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
+	defer func() { _ = store.Close() }()
+
+	if len(store.webhookTokens) != 1 {
+		t.Fatalf("expected 1 token, got %d", len(store.webhookTokens))
+	}
+	if store.webhookTokens[0] != "custom-secret-value" {
+		t.Fatalf("expected 'custom-secret-value', got %q", store.webhookTokens[0])
+	}
+
+	// DB should also have the override value.
+	ctx := context.Background()
+	dbVal, found, err := store.GetSetting(ctx, "webhook_secret")
+	if err != nil {
+		t.Fatalf("GetSetting error: %v", err)
+	}
+	if !found || dbVal != "custom-secret-value" {
+		t.Fatalf("expected DB to have 'custom-secret-value', got found=%v val=%q", found, dbVal)
+	}
+}
+
+func TestEnsureWebhookSecret_CommaSeparated(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	t.Setenv("ROP_PLATFORM_ENDPOINT", "https://git.example.com")
+	t.Setenv("ROP_WEBHOOK_SECRET", "secret1,secret2,secret3")
+
+	store, err := New(dbPath, slog.Default())
+	if err != nil {
+		t.Fatalf("New() failed: %v", err)
+	}
+	defer func() { _ = store.Close() }()
+
+	expected := []string{"secret1", "secret2", "secret3"}
+	if len(store.webhookTokens) != len(expected) {
+		t.Fatalf("expected %d tokens, got %d: %v", len(expected), len(store.webhookTokens), store.webhookTokens)
+	}
+	for i, exp := range expected {
+		if store.webhookTokens[i] != exp {
+			t.Fatalf("token[%d]: expected %q, got %q", i, exp, store.webhookTokens[i])
+		}
+	}
+}

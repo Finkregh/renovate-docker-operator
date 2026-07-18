@@ -6,10 +6,12 @@ import (
 	"bytes"
 	"context"
 	"crypto/hmac"
+	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -62,22 +64,10 @@ func New(dbPath string, logger *slog.Logger) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("run migrations: %w", err)
 	}
 
-	// Load webhook tokens from environment.
-	var tokens []string
-	if secret := os.Getenv("ROP_WEBHOOK_SECRET"); secret != "" {
-		for _, t := range strings.Split(secret, ",") {
-			t = strings.TrimSpace(t)
-			if t != "" {
-				tokens = append(tokens, t)
-			}
-		}
-	}
-
 	s := &SQLiteStore{
-		writeDB:       writeDB,
-		readDB:        readDB,
-		logger:        logger,
-		webhookTokens: tokens,
+		writeDB: writeDB,
+		readDB:  readDB,
+		logger:  logger,
 	}
 
 	// Seed default job if no jobs exist.
@@ -85,6 +75,13 @@ func New(dbPath string, logger *slog.Logger) (*SQLiteStore, error) {
 		_ = readDB.Close()
 		_ = writeDB.Close()
 		return nil, fmt.Errorf("seed default job: %w", err)
+	}
+
+	// Auto-generate or load webhook secret from settings table.
+	if err := s.ensureWebhookSecret(); err != nil {
+		_ = readDB.Close()
+		_ = writeDB.Close()
+		return nil, fmt.Errorf("ensure webhook secret: %w", err)
 	}
 
 	return s, nil
@@ -135,6 +132,72 @@ func (s *SQLiteStore) seedDefaultJob() error {
 		"endpoint", endpoint,
 		"image", image,
 	)
+	return nil
+}
+
+// ensureWebhookSecret loads or auto-generates a webhook secret.
+// On first startup it generates a 40-char hex secret and stores it in the
+// settings table. On subsequent starts it loads the existing secret.
+// If ROP_WEBHOOK_SECRET is set, it overrides the DB value.
+func (s *SQLiteStore) ensureWebhookSecret() error {
+	ctx := context.Background()
+	var generated bool
+
+	// 1. Read existing secret from DB
+	secret, found, err := s.GetSetting(ctx, "webhook_secret")
+	if err != nil {
+		return fmt.Errorf("reading webhook_secret setting: %w", err)
+	}
+
+	// 2. Generate if not found (first run)
+	if !found {
+		b := make([]byte, 20) // 20 bytes = 40 hex chars
+		if _, err := cryptorand.Read(b); err != nil {
+			return fmt.Errorf("generating webhook secret: %w", err)
+		}
+		secret = hex.EncodeToString(b)
+		if err := s.SetSetting(ctx, "webhook_secret", secret); err != nil {
+			return fmt.Errorf("storing generated webhook secret: %w", err)
+		}
+		generated = true
+	}
+
+	// 3. Check envvar override
+	if envSecret := os.Getenv("ROP_WEBHOOK_SECRET"); envSecret != "" {
+		secret = envSecret
+		if err := s.SetSetting(ctx, "webhook_secret", secret); err != nil {
+			return fmt.Errorf("storing envvar webhook secret: %w", err)
+		}
+		s.logger.Warn("webhook secret overridden by ROP_WEBHOOK_SECRET envvar")
+	}
+
+	// 4. Log secret state
+	switch {
+	case generated && os.Getenv("ROP_WEBHOOK_SECRET") == "":
+		s.logger.Info("webhook secret active",
+			"source", "auto-generated",
+			"secret", secret,
+			"hint", `retrieve with: sqlite3 <db-path> "SELECT value FROM settings WHERE key='webhook_secret'"`,
+		)
+	case os.Getenv("ROP_WEBHOOK_SECRET") != "":
+		s.logger.Info("webhook secret active", "source", "envvar")
+	default:
+		masked := secret[:4] + "..." + secret[len(secret)-4:]
+		s.logger.Info("webhook secret active",
+			"source", "database",
+			"secret", masked,
+		)
+	}
+
+	// 5. Populate webhookTokens from final value
+	s.webhookTokens = nil
+	for _, t := range strings.Split(secret, ",") {
+		t = strings.TrimSpace(t)
+		if t != "" {
+			s.webhookTokens = append(s.webhookTokens, t)
+		}
+	}
+
 	return nil
 }
 
