@@ -1,3 +1,7 @@
+# check=skip=SecretsUsedInArgOrEnv
+# ↑ These are empty-string placeholders for runtime injection (via -e / compose env).
+#   No actual secrets are baked into the image.
+
 # Build stage
 FROM golang:1.26-alpine AS builder
 
