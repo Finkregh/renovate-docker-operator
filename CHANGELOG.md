@@ -2,6 +2,12 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.5.0](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/compare/75d359727fabbd4917181429f7f19f98d45923d0..v0.5.0) - 2026-07-18
+#### Features
+- pass through all RENOVATE_* envvars to spawned containers - ([75d3597](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/75d359727fabbd4917181429f7f19f98d45923d0)) - Oluf Lorenzen
+
+- - -
+
 ## [v0.4.0](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/compare/a2aa5f396663105f7ee9b3aa2202ab5f2c63f66b..v0.4.0) - 2026-07-18
 #### Features
 - add HTTP access log middleware and webhook rejection logging - ([b7d965e](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/b7d965ed1d06056ac8c1b49d6def219b5604e4e4)) - Oluf Lorenzen
