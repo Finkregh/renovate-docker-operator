@@ -113,11 +113,11 @@ func (s *SQLiteStore) seedDefaultJob() error {
 
 	platform := envOrDefault("PLATFORM", "forgejo")
 	endpoint := os.Getenv("PLATFORM_ENDPOINT")
-	image := envOrDefault("RENOVATE_IMAGE", "renovate/renovate:latest")
+	image := envOrDefault("RENOVATEOP_IMAGE", "renovate/renovate:latest")
 	schedule := envOrDefault("CRON_SCHEDULE", "0 */4 * * *")
 	parallelism := envOrDefaultInt("GLOBAL_PARALLELISM_LIMIT", 2)
-	discoveryFilters := commaSepToJSON(os.Getenv("RENOVATE_DISCOVERY_FILTERS"))
-	discoverTopics := commaSepToJSON(os.Getenv("RENOVATE_DISCOVER_TOPICS"))
+	discoveryFilters := commaSepToJSON(os.Getenv("RENOVATEOP_DISCOVERY_FILTERS"))
+	discoverTopics := commaSepToJSON(os.Getenv("RENOVATEOP_DISCOVER_TOPICS"))
 	skipForks := boolToInt(os.Getenv("AUTODISCOVER_SKIP_FORKS"))
 
 	_, err := s.writeDB.ExecContext(ctx, `INSERT INTO renovate_jobs

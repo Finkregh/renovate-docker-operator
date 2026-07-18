@@ -8,15 +8,15 @@ services:
     environment:
       # Required
       PLATFORM_ENDPOINT: "${PLATFORM_ENDPOINT:-https://git.example.com}"
-      RENOVATE_TOKEN: "${RENOVATE_TOKEN}"
+      RENOVATEOP_TOKEN: "${RENOVATEOP_TOKEN}"
 
       # Optional overrides
       PLATFORM: "${PLATFORM:-forgejo}"
-      RENOVATE_IMAGE: "${RENOVATE_IMAGE:-renovate/renovate:latest}"
+      RENOVATEOP_IMAGE: "${RENOVATEOP_IMAGE:-renovate/renovate:latest}"
       CRON_SCHEDULE: "${CRON_SCHEDULE:-0 */4 * * *}"
       GLOBAL_PARALLELISM_LIMIT: "${GLOBAL_PARALLELISM_LIMIT:-2}"
       SERVER_PORT: "${SERVER_PORT:-8081}"
-      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      RENOVATEOP_LOG_LEVEL: "${RENOVATEOP_LOG_LEVEL:-info}"
       CONTAINER_NETWORK: "renovate"
 
       # Webhook (enabled by default)
@@ -31,7 +31,7 @@ services:
       SESSION_SECRET: "${SESSION_SECRET:-}"
 
       # Discovery filters (optional)
-      RENOVATE_DISCOVERY_FILTERS: "${RENOVATE_DISCOVERY_FILTERS:-}"
+      RENOVATEOP_DISCOVERY_FILTERS: "${RENOVATEOP_DISCOVERY_FILTERS:-}"
       AUTODISCOVER_SKIP_FORKS: "${AUTODISCOVER_SKIP_FORKS:-false}"
     volumes:
       # Persist SQLite database

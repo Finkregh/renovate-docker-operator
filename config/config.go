@@ -15,7 +15,7 @@ type Config struct {
 	SQLitePath string // SQLITE_PATH (default: /data/renovate.db)
 
 	// Docker
-	RenovateImage    string // RENOVATE_IMAGE (default: renovate/renovate:latest)
+	RenovateImage    string // RENOVATEOP_IMAGE (default: renovate/renovate:latest)
 	CacheVolume      string // CACHE_VOLUME (default: renovate-cache)
 	ContainerNetwork string // CONTAINER_NETWORK (default: "")
 	ImagePullPolicy  string // IMAGE_PULL_POLICY (default: if-not-present)
@@ -28,7 +28,7 @@ type Config struct {
 	// Platform
 	Platform         string // PLATFORM (default: forgejo)
 	PlatformEndpoint string // PLATFORM_ENDPOINT (required)
-	PlatformToken    string // RENOVATE_TOKEN (required)
+	PlatformToken    string // RENOVATEOP_TOKEN (required)
 
 	// Schedule
 	CronSchedule      string // CRON_SCHEDULE (default: 0 */4 * * *)
@@ -47,12 +47,12 @@ type Config struct {
 	SessionSecret    string // SESSION_SECRET (optional, auto-generated if empty)
 
 	// Discovery
-	DiscoveryFilters string // RENOVATE_DISCOVERY_FILTERS (comma-sep, optional)
-	DiscoverTopics   string // RENOVATE_DISCOVER_TOPICS (comma-sep, optional)
+	DiscoveryFilters string // RENOVATEOP_DISCOVERY_FILTERS (comma-sep, optional)
+	DiscoverTopics   string // RENOVATEOP_DISCOVER_TOPICS (comma-sep, optional)
 	SkipForks        bool   // AUTODISCOVER_SKIP_FORKS (default: false)
 
 	// Logging
-	LogLevel string // LOG_LEVEL (default: info)
+	LogLevel string // RENOVATEOP_LOG_LEVEL (default: info)
 }
 
 // configValues stores a flat map of config values for GetValue lookups.
@@ -63,13 +63,13 @@ var configValues map[string]string
 func Load() (*Config, error) {
 	cfg := &Config{
 		SQLitePath:       envOrDefault("SQLITE_PATH", "/data/renovate.db"),
-		RenovateImage:    envOrDefault("RENOVATE_IMAGE", "renovate/renovate:latest"),
+		RenovateImage:    envOrDefault("RENOVATEOP_IMAGE", "renovate/renovate:latest"),
 		CacheVolume:      envOrDefault("CACHE_VOLUME", "renovate-cache"),
 		ContainerNetwork: os.Getenv("CONTAINER_NETWORK"),
 		ImagePullPolicy:  envOrDefault("IMAGE_PULL_POLICY", "if-not-present"),
 		Platform:         envOrDefault("PLATFORM", "forgejo"),
 		PlatformEndpoint: os.Getenv("PLATFORM_ENDPOINT"),
-		PlatformToken:    os.Getenv("RENOVATE_TOKEN"),
+		PlatformToken:    os.Getenv("RENOVATEOP_TOKEN"),
 		CronSchedule:     envOrDefault("CRON_SCHEDULE", "0 */4 * * *"),
 		ServerPort:       envOrDefault("SERVER_PORT", "8081"),
 		WebhookSecret:    os.Getenv("WEBHOOK_SECRET"),
@@ -78,9 +78,9 @@ func Load() (*Config, error) {
 		OIDCClientSecret: os.Getenv("OIDC_CLIENT_SECRET"),
 		OIDCRedirectURL:  os.Getenv("OIDC_REDIRECT_URL"),
 		SessionSecret:    os.Getenv("SESSION_SECRET"),
-		DiscoveryFilters: os.Getenv("RENOVATE_DISCOVERY_FILTERS"),
-		DiscoverTopics:   os.Getenv("RENOVATE_DISCOVER_TOPICS"),
-		LogLevel:         envOrDefault("LOG_LEVEL", "info"),
+		DiscoveryFilters: os.Getenv("RENOVATEOP_DISCOVERY_FILTERS"),
+		DiscoverTopics:   os.Getenv("RENOVATEOP_DISCOVER_TOPICS"),
+		LogLevel:         envOrDefault("RENOVATEOP_LOG_LEVEL", "info"),
 	}
 
 	// Parse integers
@@ -105,31 +105,31 @@ func Load() (*Config, error) {
 
 	// Populate the flat map for GetValue
 	configValues = map[string]string{
-		"SQLITE_PATH":                cfg.SQLitePath,
-		"RENOVATE_IMAGE":             cfg.RenovateImage,
-		"CACHE_VOLUME":               cfg.CacheVolume,
-		"CONTAINER_NETWORK":          cfg.ContainerNetwork,
-		"IMAGE_PULL_POLICY":          cfg.ImagePullPolicy,
-		"GLOBAL_PARALLELISM_LIMIT":   strconv.Itoa(cfg.Parallelism),
-		"JOB_TIMEOUT_SECONDS":        strconv.Itoa(jobTimeoutSec),
-		"SHUTDOWN_GRACE_PERIOD":      strconv.Itoa(gracePeriodSec),
-		"PLATFORM":                   cfg.Platform,
-		"PLATFORM_ENDPOINT":          cfg.PlatformEndpoint,
-		"RENOVATE_TOKEN":             cfg.PlatformToken,
-		"CRON_SCHEDULE":              cfg.CronSchedule,
-		"CRON_SKIP_DISCOVERY":        strconv.FormatBool(cfg.CronSkipDiscovery),
-		"SERVER_PORT":                cfg.ServerPort,
-		"WEBHOOK_SERVER_ENABLED":     strconv.FormatBool(cfg.WebhookEnabled),
-		"WEBHOOK_SECRET":             cfg.WebhookSecret,
-		"OIDC_ISSUER_URL":            cfg.OIDCIssuerURL,
-		"OIDC_CLIENT_ID":             cfg.OIDCClientID,
-		"OIDC_CLIENT_SECRET":         cfg.OIDCClientSecret,
-		"OIDC_REDIRECT_URL":          cfg.OIDCRedirectURL,
-		"SESSION_SECRET":             cfg.SessionSecret,
-		"RENOVATE_DISCOVERY_FILTERS": cfg.DiscoveryFilters,
-		"RENOVATE_DISCOVER_TOPICS":   cfg.DiscoverTopics,
-		"AUTODISCOVER_SKIP_FORKS":    strconv.FormatBool(cfg.SkipForks),
-		"LOG_LEVEL":                  cfg.LogLevel,
+		"SQLITE_PATH":                  cfg.SQLitePath,
+		"RENOVATEOP_IMAGE":             cfg.RenovateImage,
+		"CACHE_VOLUME":                 cfg.CacheVolume,
+		"CONTAINER_NETWORK":            cfg.ContainerNetwork,
+		"IMAGE_PULL_POLICY":            cfg.ImagePullPolicy,
+		"GLOBAL_PARALLELISM_LIMIT":     strconv.Itoa(cfg.Parallelism),
+		"JOB_TIMEOUT_SECONDS":          strconv.Itoa(jobTimeoutSec),
+		"SHUTDOWN_GRACE_PERIOD":        strconv.Itoa(gracePeriodSec),
+		"PLATFORM":                     cfg.Platform,
+		"PLATFORM_ENDPOINT":            cfg.PlatformEndpoint,
+		"RENOVATEOP_TOKEN":             cfg.PlatformToken,
+		"CRON_SCHEDULE":                cfg.CronSchedule,
+		"CRON_SKIP_DISCOVERY":          strconv.FormatBool(cfg.CronSkipDiscovery),
+		"SERVER_PORT":                  cfg.ServerPort,
+		"WEBHOOK_SERVER_ENABLED":       strconv.FormatBool(cfg.WebhookEnabled),
+		"WEBHOOK_SECRET":               cfg.WebhookSecret,
+		"OIDC_ISSUER_URL":              cfg.OIDCIssuerURL,
+		"OIDC_CLIENT_ID":               cfg.OIDCClientID,
+		"OIDC_CLIENT_SECRET":           cfg.OIDCClientSecret,
+		"OIDC_REDIRECT_URL":            cfg.OIDCRedirectURL,
+		"SESSION_SECRET":               cfg.SessionSecret,
+		"RENOVATEOP_DISCOVERY_FILTERS": cfg.DiscoveryFilters,
+		"RENOVATEOP_DISCOVER_TOPICS":   cfg.DiscoverTopics,
+		"AUTODISCOVER_SKIP_FORKS":      strconv.FormatBool(cfg.SkipForks),
+		"RENOVATEOP_LOG_LEVEL":         cfg.LogLevel,
 	}
 
 	return cfg, nil

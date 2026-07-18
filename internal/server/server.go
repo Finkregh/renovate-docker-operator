@@ -322,6 +322,15 @@ func (s *Server) getRenovateJobLogs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if err := scanner.Err(); err != nil {
+		s.logger.Error("error reading log stream", "project", project, "error", err)
+		_, _ = fmt.Fprintf(w, "event: error\ndata: {\"error\":\"stream read error\"}\n\n")
+		if flusher != nil {
+			flusher.Flush()
+		}
+		return
+	}
+
 	_, _ = fmt.Fprint(w, "event: done\ndata: {}\n\n")
 	if flusher != nil {
 		flusher.Flush()
