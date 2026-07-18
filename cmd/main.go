@@ -141,7 +141,7 @@ func run() error {
 // loop will pick up newly scheduled projects on its next tick.
 func runScheduledCycle(ctx context.Context, disc *discovery.Agent, store *statestore.SQLiteStore, logger *slog.Logger, skipDiscovery bool) {
 	if skipDiscovery {
-		logger.Info("cron fired but discovery is skipped (CRON_SKIP_DISCOVERY=true)")
+		logger.Info("cron fired but discovery is skipped (ROP_CRON_SKIP_DISCOVERY=true)")
 		return
 	}
 

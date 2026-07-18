@@ -50,52 +50,6 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
 
-      - name: Find release by tag
-        id: release
-        env:
-          TOKEN: ${{ secrets.PACKAGE_UPLOAD_TOKEN }}
-          SERVER: ${{ github.server_url }}
-          REPO: ${{ github.repository }}
-          VERSION: ${{ steps.version.outputs.VERSION }}
-        run: |
-          for i in $(seq 1 12); do
-            RESPONSE=$(curl -s -w '\n%{http_code}' \
-              -H "Authorization: token ${TOKEN}" \
-              "${SERVER}/api/v1/repos/${REPO}/releases/tags/${VERSION}")
-            HTTP_CODE=$(echo "$RESPONSE" | tail -1)
-            BODY=$(echo "$RESPONSE" | sed '$d')
-
-            if [ "$HTTP_CODE" = "200" ]; then
-              RELEASE_ID=$(echo "$BODY" | jq -r '.id')
-              echo "RELEASE_ID=${RELEASE_ID}" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-
-            echo "Attempt $i/12: HTTP ${HTTP_CODE} — $(echo "$BODY" | jq -r '.message // empty')"
-            sleep 10
-          done
-
-          echo "::error::Release for tag ${VERSION} not found after 2 minutes (last HTTP ${HTTP_CODE})"
-          exit 1
-
-      - name: Attach binaries to release
-        env:
-          TOKEN: ${{ secrets.PACKAGE_UPLOAD_TOKEN }}
-          SERVER: ${{ github.server_url }}
-          REPO: ${{ github.repository }}
-          RELEASE_ID: ${{ steps.release.outputs.RELEASE_ID }}
-        run: |
-          for arch in amd64 arm64 armv7; do
-            curl -s --fail -X POST \
-              -H "Authorization: token ${TOKEN}" \
-              -F "attachment=@dist/${arch}/renovate-operator" \
-              "${SERVER}/api/v1/repos/${REPO}/releases/${RELEASE_ID}/assets?name=renovate-operator-linux-${arch}"
-          done
-          curl -s --fail -X POST \
-            -H "Authorization: token ${TOKEN}" \
-            -F "attachment=@dist/checksums.txt" \
-            "${SERVER}/api/v1/repos/${REPO}/releases/${RELEASE_ID}/assets?name=checksums.txt"
-
       - name: Upload to Generic Package Registry
         env:
           TOKEN: ${{ secrets.PACKAGE_UPLOAD_TOKEN }}

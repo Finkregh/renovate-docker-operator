@@ -90,7 +90,7 @@ func (s *Server) Start() {
 	// UI static file serving (last — catch-all)
 	s.registerUIRoutes(router)
 
-	port := config.GetValue("SERVER_PORT")
+	port := config.GetValue("ROP_SERVER_PORT")
 	if port == "" {
 		port = "8081"
 	}
@@ -138,7 +138,37 @@ type RenovateJobInfo struct {
 	Platform         string                             `json:"platform,omitempty"`
 	PlatformEndpoint string                             `json:"platformEndpoint,omitempty"`
 	ExecutionOptions *api.RenovateExecutionOptions      `json:"executionOptions,omitempty"`
+	DebugMode        *api.DebugModeInfo                 `json:"debugMode,omitempty"`
 	WebhookEnabled   bool                               `json:"webhookEnabled"`
+}
+
+// buildDebugModeInfo computes the effective debug mode state, considering
+// the DB setting and any RENOVATE_LOG_LEVEL environment variable override.
+func buildDebugModeInfo(opts *api.RenovateExecutionOptions) *api.DebugModeInfo {
+	// Determine base state from DB (nil means default=debug)
+	dbDebug := true
+	if opts != nil {
+		dbDebug = opts.Debug
+	}
+
+	// Check for env override
+	envVal := os.Getenv("RENOVATE_LOG_LEVEL")
+	if envVal != "" {
+		// Env override is active
+		enabled := (envVal == "debug")
+		return &api.DebugModeInfo{
+			Enabled: enabled,
+			EnvOverride: &api.EnvOverrideInfo{
+				Name:  "RENOVATE_LOG_LEVEL",
+				Value: envVal,
+			},
+		}
+	}
+
+	// No env override — use DB setting
+	return &api.DebugModeInfo{
+		Enabled: dbDebug,
+	}
 }
 
 func (s *Server) getVersion(w http.ResponseWriter, _ *http.Request) {
@@ -184,6 +214,7 @@ func (s *Server) getRenovateJobs(w http.ResponseWriter, r *http.Request) {
 			Platform:         platform,
 			PlatformEndpoint: endpoint,
 			ExecutionOptions: job.Status.ExecutionOptions,
+			DebugMode:        buildDebugModeInfo(job.Status.ExecutionOptions),
 			WebhookEnabled:   job.Spec.Webhook != nil && job.Spec.Webhook.Enabled,
 		})
 	}

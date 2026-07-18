@@ -59,7 +59,7 @@ cd renovate-docker-operator
 
 # 2. Copy and edit environment file
 cp .env.example .env
-# Edit .env — set RENOVATEOP_TOKEN at minimum
+# Edit .env — set RENOVATE_TOKEN at minimum
 
 # 3. Start with Docker Compose
 docker compose up -d
@@ -76,8 +76,8 @@ cp .env.example .env
 Edit `.env`:
 
 ```env
-PLATFORM_ENDPOINT=https://git.example.com
-RENOVATEOP_TOKEN=<your-forgejo-token>
+ROP_PLATFORM_ENDPOINT=https://git.example.com
+RENOVATE_TOKEN=<your-forgejo-token>
 PLATFORM=forgejo
 ```
 
@@ -101,27 +101,27 @@ All configuration is via environment variables:
 
 | Variable | Default | Description |
 | ---------- | --------- | ------------- |
-| `PLATFORM_ENDPOINT` | *(required)* | Forgejo/Gitea instance URL |
-| `RENOVATEOP_TOKEN` | *(required)* | Platform access token for Renovate |
+| `ROP_PLATFORM_ENDPOINT` | *(required)* | Forgejo/Gitea instance URL |
+| `RENOVATE_TOKEN` | *(required)* | Platform access token for Renovate |
 | `PLATFORM` | `forgejo` | Platform type (`forgejo`, `gitea`, `github`, `gitlab`) |
-| `RENOVATEOP_IMAGE` | `renovate/renovate:latest` | Docker image for Renovate |
-| `CRON_SCHEDULE` | `0 */4 * * *` | Cron expression for discovery+run cycles |
-| `GLOBAL_PARALLELISM_LIMIT` | `2` | Max concurrent Renovate containers |
-| `SERVER_PORT` | `8081` | HTTP server port (UI + webhook + API) |
-| `SQLITE_PATH` | `/data/renovate.db` | Path to SQLite database |
-| `CACHE_VOLUME` | `renovate-cache` | Docker volume for Renovate cache |
-| `CONTAINER_NETWORK` | *(empty)* | Docker network for Renovate containers |
-| `IMAGE_PULL_POLICY` | `if-not-present` | When to pull image (`always`, `if-not-present`, `never`) |
-| `JOB_TIMEOUT_SECONDS` | `1800` | Max runtime per Renovate container (30 min) |
-| `SHUTDOWN_GRACE_PERIOD` | `300` | Grace period for stopping containers on shutdown (5 min) |
-| `RENOVATEOP_LOG_LEVEL` | `info` | Log level (`debug`, `info`, `warn`, `error`) |
+| `ROP_IMAGE` | `renovate/renovate:latest` | Docker image for Renovate |
+| `ROP_CRON_SCHEDULE` | `0 */4 * * *` | Cron expression for discovery+run cycles |
+| `ROP_PARALLELISM` | `2` | Max concurrent Renovate containers |
+| `ROP_SERVER_PORT` | `8081` | HTTP server port (UI + webhook + API) |
+| `ROP_SQLITE_PATH` | `/data/renovate.db` | Path to SQLite database |
+| `ROP_CACHE_VOLUME` | `renovate-cache` | Docker volume for Renovate cache |
+| `ROP_CONTAINER_NETWORK` | *(empty)* | Docker network for Renovate containers |
+| `ROP_IMAGE_PULL_POLICY` | `if-not-present` | When to pull image (`always`, `if-not-present`, `never`) |
+| `ROP_JOB_TIMEOUT` | `1800` | Max runtime per Renovate container (30 min) |
+| `ROP_SHUTDOWN_GRACE_PERIOD` | `300` | Grace period for stopping containers on shutdown (5 min) |
+| `ROP_LOG_LEVEL` | `info` | Log level (`debug`, `info`, `warn`, `error`) |
 
 ### Webhook Configuration
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `WEBHOOK_SERVER_ENABLED` | `true` | Enable webhook endpoint |
-| `WEBHOOK_SECRET` | *(empty)* | Comma-separated HMAC secrets for webhook validation |
+| `ROP_WEBHOOK_ENABLED` | `true` | Enable webhook endpoint |
+| `ROP_WEBHOOK_SECRET` | *(auto-generated)* | HMAC secret for webhook validation (optional — auto-generated on first startup, comma-separated for rotation) |
 
 Configure your Forgejo instance to send webhooks to:
 
@@ -137,7 +137,7 @@ For Forgejo instances where you want all repositories covered automatically, use
 
 1. **Target URL**: `http://renovate-operator:8081/webhook/v1/forgejo?job=default`
 2. **Content Type**: `application/json`
-3. **Secret**: Your shared HMAC secret (same value as `WEBHOOK_SECRET`). This provides HMAC-SHA256 signature authentication via `X-Forgejo-Signature`. The Authorization Header field is optional and redundant when a Secret is configured.
+3. **Secret**: Your HMAC secret (retrieve from the operator — see below). This provides HMAC-SHA256 signature authentication via `X-Forgejo-Signature`. The Authorization Header field is optional and redundant when a Secret is configured.
 4. **Branch Filter**: `main` (or `{main,master}` to match multiple default branches). This filter is applied server-side by Forgejo, so only pushes to matching branches are delivered.
 5. **Events**: Select "Custom Events", then enable:
    - **Push** — triggers Renovate on code changes to the default branch
@@ -146,26 +146,46 @@ For Forgejo instances where you want all repositories covered automatically, use
 
 > **Note**: The branch filter is applied server-side by Forgejo before delivery. Tag pushes and branch deletions are also filtered out by the operator as defense-in-depth.
 
+#### Generating the Webhook Secret
+
+On first startup, the operator auto-generates a random 40-character HMAC secret
+and stores it in the database. The full secret is logged on first generation.
+Retrieve it later with:
+
+```bash
+sqlite3 data/renovate.db "SELECT value FROM settings WHERE key='webhook_secret'"
+```
+
+Paste this value into your Forgejo webhook's **Secret** field.
+
+To override with a custom secret (e.g., for infrastructure-as-code):
+
+```bash
+export ROP_WEBHOOK_SECRET=$(openssl rand -hex 20)
+```
+
+When `ROP_WEBHOOK_SECRET` is set, it takes precedence over the auto-generated value.
+
 ### Authentication (Optional)
 
 | Variable | Default | Description |
 | ---------- | --------- | ------------- |
-| `OIDC_ISSUER_URL` | *(empty)* | OIDC provider URL (leave empty for no-auth) |
-| `OIDC_CLIENT_ID` | *(empty)* | OAuth2 client ID |
-| `OIDC_CLIENT_SECRET` | *(empty)* | OAuth2 client secret |
-| `OIDC_REDIRECT_URL` | *(empty)* | OAuth2 redirect URL |
-| `SESSION_SECRET` | *(auto-generated)* | AES key for session cookies |
+| `ROP_OIDC_ISSUER_URL` | *(empty)* | OIDC provider URL (leave empty for no-auth) |
+| `ROP_OIDC_CLIENT_ID` | *(empty)* | OAuth2 client ID |
+| `ROP_OIDC_CLIENT_SECRET` | *(empty)* | OAuth2 client secret |
+| `ROP_OIDC_REDIRECT_URL` | *(empty)* | OAuth2 redirect URL |
+| `ROP_SESSION_SECRET` | *(auto-generated)* | AES key for session cookies |
 
-**Tip**: Use Forgejo itself as your OIDC provider! Forgejo 1.22+ has built-in OAuth2 provider support. Create an OAuth2 application in Forgejo settings and point `OIDC_ISSUER_URL` at your Forgejo instance.
+**Tip**: Use Forgejo itself as your OIDC provider! Forgejo 1.22+ has built-in OAuth2 provider support. Create an OAuth2 application in Forgejo settings and point `ROP_OIDC_ISSUER_URL` at your Forgejo instance.
 
 ### Discovery Filters
 
 | Variable | Default | Description |
 | ---------- | --------- | ------------- |
-| `RENOVATEOP_DISCOVERY_FILTERS` | *(empty)* | Comma-separated repo patterns (e.g., `org/*,user/repo-*`) |
-| `RENOVATEOP_DISCOVER_TOPICS` | *(empty)* | Comma-separated topics to filter by |
-| `AUTODISCOVER_SKIP_FORKS` | `false` | Skip forked repositories |
-| `CRON_SKIP_DISCOVERY` | `false` | Skip discovery on cron (only run known projects) |
+| `ROP_DISCOVERY_FILTERS` | *(empty)* | Comma-separated repo patterns (e.g., `org/*,user/repo-*`) |
+| `ROP_DISCOVER_TOPICS` | *(empty)* | Comma-separated topics to filter by |
+| `ROP_SKIP_FORKS` | `false` | Skip forked repositories |
+| `ROP_CRON_SKIP_DISCOVERY` | `false` | Skip discovery on cron (only run known projects) |
 
 ---
 

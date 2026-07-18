@@ -6,31 +6,32 @@ services:
     container_name: renovate-docker-operator
     restart: unless-stopped
     ports:
-      - "${SERVER_PORT:-8081}:${SERVER_PORT:-8081}"
+      - "${ROP_SERVER_PORT:-8081}:${ROP_SERVER_PORT:-8081}"
     environment:
       # These have to be changed!
-      PLATFORM_ENDPOINT: "${PLATFORM_ENDPOINT}"
-      RENOVATEOP_TOKEN: "FIXME"
+      ROP_PLATFORM_ENDPOINT: "${ROP_PLATFORM_ENDPOINT}"
+      RENOVATE_TOKEN: "FIXME"
 
       # Spawned renovate containers will join this network (same as the compose-network below)
-      CONTAINER_NETWORK: "renovate"
+      ROP_CONTAINER_NETWORK: "renovate"
 
       # Optional overrides (uncomment to diverge from Dockerfile defaults)
-      # PLATFORM: "forgejo"
-      # RENOVATEOP_IMAGE: "renovate/renovate:latest"
-      # CRON_SCHEDULE: "0 */4 * * *"
-      # GLOBAL_PARALLELISM_LIMIT: "2"
-      # SERVER_PORT: "8081"
-      # RENOVATEOP_LOG_LEVEL: "info"
-      # WEBHOOK_SERVER_ENABLED: "true"
-      # WEBHOOK_SECRET: ""
-      # OIDC_ISSUER_URL: ""
-      # OIDC_CLIENT_ID: ""
-      # OIDC_CLIENT_SECRET: ""
-      # OIDC_REDIRECT_URL: ""
-      # SESSION_SECRET: ""
-      # RENOVATEOP_DISCOVERY_FILTERS: ""
-      # AUTODISCOVER_SKIP_FORKS: "false"
+      # ROP_PLATFORM: "forgejo"
+      # ROP_IMAGE: "renovate/renovate:latest"
+      # ROP_CRON_SCHEDULE: "0 */4 * * *"
+      # ROP_PARALLELISM: "2"
+      # ROP_SERVER_PORT: "8081"
+      # ROP_LOG_LEVEL: "info"
+      # ROP_WEBHOOK_ENABLED: "true"
+      # ROP_WEBHOOK_SECRET: ""
+      # ROP_OIDC_ISSUER_URL: ""
+      # ROP_OIDC_CLIENT_ID: ""
+      # ROP_OIDC_CLIENT_SECRET: ""
+      # ROP_OIDC_REDIRECT_URL: ""
+      # ROP_SESSION_SECRET: ""
+      # ROP_DISCOVERY_FILTERS: ""
+      # ROP_SKIP_FORKS: "false"
+      # RENOVATE_LOG_LEVEL: "debug"  # Override container log level
     volumes:
       # Persist SQLite database
       - operator-data:/data

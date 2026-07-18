@@ -1809,7 +1809,7 @@
         const [optionsPos, setOptionsPos] = useState({ top: 0, right: 0 });
         const optionsBtnRef = useRef(null);
         const [debugOption, setDebugOption] = useState(
-          job.executionOptions?.debug ?? false,
+          job.debugMode?.enabled ?? job.executionOptions?.debug ?? true,
         );
         const [webhookOption, setWebhookOption] = useState(
           job.webhookEnabled ?? false,
@@ -1986,15 +1986,24 @@
                         <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-3">
                           Execution Options
                         </h3>
-                        <label className="flex items-center gap-2 mb-3 cursor-pointer">
+                        <label
+                          className={`flex items-center gap-2 mb-3 ${job.debugMode?.envOverride ? "opacity-60" : "cursor-pointer"}`}
+                        >
                           <input
                             type="checkbox"
-                            checked={debugOption}
+                            checked={
+                              job.debugMode?.envOverride
+                                ? job.debugMode.enabled
+                                : debugOption
+                            }
                             onChange={(e) => setDebugOption(e.target.checked)}
+                            disabled={!!job.debugMode?.envOverride}
                             className="w-4 h-4 rounded border-gray-300 accent-primary"
                           />
                           <span className="text-sm text-gray-700 dark:text-slate-300">
-                            Debug mode
+                            {job.debugMode?.envOverride
+                              ? `Debug mode (set via envvar, ${job.debugMode.envOverride.name})`
+                              : "Debug mode"}
                           </span>
                         </label>
                         <label className="flex items-center gap-2 mb-3 cursor-pointer">

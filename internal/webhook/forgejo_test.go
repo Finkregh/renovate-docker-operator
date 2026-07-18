@@ -436,76 +436,102 @@ func TestAuthenticate(t *testing.T) {
 	jobID := statestore.RenovateJobIdentifier{Name: "test-job"}
 
 	tests := []struct {
-		name    string
-		headers map[string]string
-		wantOK  bool
+		name           string
+		headers        map[string]string
+		wantOK         bool
+		wantSuccess    bool
+		wantMethodsLen int
 	}{
 		{
-			name:    "X-Forgejo-Signature valid raw hex",
-			headers: map[string]string{"X-Forgejo-Signature": validHex},
-			wantOK:  true,
+			name:           "X-Forgejo-Signature valid raw hex",
+			headers:        map[string]string{"X-Forgejo-Signature": validHex},
+			wantOK:         true,
+			wantSuccess:    true,
+			wantMethodsLen: 1,
 		},
 		{
-			name:    "X-Forgejo-Signature invalid hex",
-			headers: map[string]string{"X-Forgejo-Signature": "deadbeef"},
-			wantOK:  false,
+			name:           "X-Forgejo-Signature invalid hex",
+			headers:        map[string]string{"X-Forgejo-Signature": "deadbeef"},
+			wantOK:         false,
+			wantSuccess:    false,
+			wantMethodsLen: 1,
 		},
 		{
-			name:    "X-Hub-Signature-256 valid with sha256= prefix",
-			headers: map[string]string{"X-Hub-Signature-256": "sha256=" + validHex},
-			wantOK:  true,
+			name:           "X-Hub-Signature-256 valid with sha256= prefix",
+			headers:        map[string]string{"X-Hub-Signature-256": "sha256=" + validHex},
+			wantOK:         true,
+			wantSuccess:    true,
+			wantMethodsLen: 1,
 		},
 		{
-			name:    "X-Hub-Signature-256 invalid",
-			headers: map[string]string{"X-Hub-Signature-256": "sha256=badhex"},
-			wantOK:  false,
+			name:           "X-Hub-Signature-256 invalid",
+			headers:        map[string]string{"X-Hub-Signature-256": "sha256=badhex"},
+			wantOK:         false,
+			wantSuccess:    false,
+			wantMethodsLen: 1,
 		},
 		{
-			name:    "X-Gitea-Signature valid raw hex",
-			headers: map[string]string{"X-Gitea-Signature": validHex},
-			wantOK:  true,
+			name:           "X-Gitea-Signature valid raw hex",
+			headers:        map[string]string{"X-Gitea-Signature": validHex},
+			wantOK:         true,
+			wantSuccess:    true,
+			wantMethodsLen: 1,
 		},
 		{
-			name:    "Authorization Bearer token valid",
-			headers: map[string]string{"Authorization": "Bearer " + token},
-			wantOK:  true,
+			name:           "Authorization Bearer token valid",
+			headers:        map[string]string{"Authorization": "Bearer " + token},
+			wantOK:         true,
+			wantSuccess:    true,
+			wantMethodsLen: 1,
 		},
 		{
-			name:    "Authorization Bearer token invalid",
-			headers: map[string]string{"Authorization": "Bearer wrong-token"},
-			wantOK:  false,
+			name:           "Authorization Bearer token invalid",
+			headers:        map[string]string{"Authorization": "Bearer wrong-token"},
+			wantOK:         false,
+			wantSuccess:    false,
+			wantMethodsLen: 1,
 		},
 		{
-			name:    "X-Gitlab-Token valid",
-			headers: map[string]string{"X-Gitlab-Token": token},
-			wantOK:  true,
+			name:           "X-Gitlab-Token valid",
+			headers:        map[string]string{"X-Gitlab-Token": token},
+			wantOK:         true,
+			wantSuccess:    true,
+			wantMethodsLen: 1,
 		},
 		{
-			name:    "X-Gitlab-Token invalid",
-			headers: map[string]string{"X-Gitlab-Token": "wrong-token"},
-			wantOK:  false,
+			name:           "X-Gitlab-Token invalid",
+			headers:        map[string]string{"X-Gitlab-Token": "wrong-token"},
+			wantOK:         false,
+			wantSuccess:    false,
+			wantMethodsLen: 1,
 		},
 		{
-			name:    "no auth headers",
-			headers: map[string]string{},
-			wantOK:  false,
+			name:           "no auth headers",
+			headers:        map[string]string{},
+			wantOK:         false,
+			wantSuccess:    false,
+			wantMethodsLen: 0,
 		},
 		{
-			name: "multiple headers present — Forgejo sends all — succeeds via X-Forgejo-Signature",
+			name: "multiple headers present - Forgejo sends all - succeeds via X-Forgejo-Signature",
 			headers: map[string]string{
 				"X-Forgejo-Signature": validHex,
 				"X-Gitea-Signature":   validHex,
 				"X-Hub-Signature-256": "sha256=" + validHex,
 			},
-			wantOK: true,
+			wantOK:         true,
+			wantSuccess:    true,
+			wantMethodsLen: 1, // short-circuits on first success
 		},
 		{
-			name: "multiple headers — first invalid but second valid",
+			name: "multiple headers - first invalid but second valid",
 			headers: map[string]string{
 				"X-Forgejo-Signature": "invalid",
 				"X-Gitea-Signature":   validHex,
 			},
-			wantOK: true,
+			wantOK:         true,
+			wantSuccess:    true,
+			wantMethodsLen: 2,
 		},
 	}
 
@@ -516,9 +542,21 @@ func TestAuthenticate(t *testing.T) {
 				req.Header.Set(k, v)
 			}
 
-			ok := handler.authenticate(context.Background(), jobID, req, body)
+			ok, authResult := handler.authenticate(context.Background(), jobID, req, body)
 			if ok != tt.wantOK {
 				t.Errorf("authenticate() = %v, want %v", ok, tt.wantOK)
+			}
+			if authResult == nil {
+				t.Fatal("expected non-nil AuthResult")
+			}
+			if authResult.Required != true {
+				t.Errorf("AuthResult.Required = %v, want true", authResult.Required)
+			}
+			if authResult.Success != tt.wantSuccess {
+				t.Errorf("AuthResult.Success = %v, want %v", authResult.Success, tt.wantSuccess)
+			}
+			if len(authResult.Methods) != tt.wantMethodsLen {
+				t.Errorf("len(AuthResult.Methods) = %d, want %d", len(authResult.Methods), tt.wantMethodsLen)
 			}
 		})
 	}

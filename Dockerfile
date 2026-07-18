@@ -1,3 +1,7 @@
+# check=skip=SecretsUsedInArgOrEnv
+# ↑ These are empty-string placeholders for runtime injection (via -e / compose env).
+#   No actual secrets are baked into the image.
+
 # Build stage
 FROM golang:1.26-alpine AS builder
 
@@ -50,42 +54,42 @@ COPY --from=js-downloader /workspace/static/js /app/static/js
 
 # Environment variable defaults (operator config — visible via `docker inspect`)
 # Required (no default):
-ENV PLATFORM_ENDPOINT=""
-ENV RENOVATEOP_TOKEN=""
+ENV ROP_PLATFORM_ENDPOINT=""
+ENV RENOVATE_TOKEN=""
 
 # Platform
-ENV PLATFORM="forgejo"
-ENV RENOVATEOP_IMAGE="renovate/renovate:latest"
+ENV ROP_PLATFORM="forgejo"
+ENV ROP_IMAGE="renovate/renovate:latest"
 
 # Scheduling
-ENV CRON_SCHEDULE="0 */4 * * *"
-ENV GLOBAL_PARALLELISM_LIMIT="2"
+ENV ROP_CRON_SCHEDULE="0 */4 * * *"
+ENV ROP_PARALLELISM="2"
 
 # Server
-ENV SERVER_PORT="8081"
-ENV RENOVATEOP_LOG_LEVEL="info"
-ENV CONTAINER_NETWORK=""
+ENV ROP_SERVER_PORT="8081"
+ENV ROP_LOG_LEVEL="info"
+ENV ROP_CONTAINER_NETWORK=""
 
 # Webhook
-ENV WEBHOOK_SERVER_ENABLED="true"
-ENV WEBHOOK_SECRET=""
+ENV ROP_WEBHOOK_ENABLED="true"
+ENV ROP_WEBHOOK_SECRET=""
 
 # Auth (leave blank for no-auth mode)
-ENV OIDC_ISSUER_URL=""
-ENV OIDC_CLIENT_ID=""
-ENV OIDC_CLIENT_SECRET=""
-ENV OIDC_REDIRECT_URL=""
-ENV SESSION_SECRET=""
+ENV ROP_OIDC_ISSUER_URL=""
+ENV ROP_OIDC_CLIENT_ID=""
+ENV ROP_OIDC_CLIENT_SECRET=""
+ENV ROP_OIDC_REDIRECT_URL=""
+ENV ROP_SESSION_SECRET=""
 
 # Discovery
-ENV RENOVATEOP_DISCOVERY_FILTERS=""
-ENV RENOVATEOP_DISCOVER_TOPICS=""
-ENV AUTODISCOVER_SKIP_FORKS="false"
+ENV ROP_DISCOVERY_FILTERS=""
+ENV ROP_DISCOVER_TOPICS=""
+ENV ROP_SKIP_FORKS="false"
 
 # Data
-ENV SQLITE_PATH="/data/renovate.db"
-ENV CACHE_VOLUME="renovate-cache"
-ENV IMAGE_PULL_POLICY="if-not-present"
+ENV ROP_SQLITE_PATH="/data/renovate.db"
+ENV ROP_CACHE_VOLUME="renovate-cache"
+ENV ROP_IMAGE_PULL_POLICY="if-not-present"
 
 USER operator
 

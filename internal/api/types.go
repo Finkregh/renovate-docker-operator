@@ -77,6 +77,20 @@ type RenovateExecutionOptions struct {
 	Debug bool `json:"debug,omitempty"`
 }
 
+// DebugModeInfo provides debug mode status and override details for the UI.
+type DebugModeInfo struct {
+	// Enabled indicates whether debug logging is effectively active.
+	Enabled bool `json:"enabled"`
+	// EnvOverride describes the environment variable overriding the setting, if any.
+	EnvOverride *EnvOverrideInfo `json:"envOverride,omitempty"`
+}
+
+// EnvOverrideInfo describes an environment variable override.
+type EnvOverrideInfo struct {
+	Name  string `json:"name"`  // e.g. "LOG_LEVEL"
+	Value string `json:"value"` // e.g. "info"
+}
+
 // RenovateJobStatus defines the observed state of a RenovateJob.
 type RenovateJobStatus struct {
 	Projects         []ProjectStatus           `json:"projects,omitempty"`

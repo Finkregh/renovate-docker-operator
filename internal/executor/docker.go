@@ -749,11 +749,13 @@ func (e *DockerExecutor) pullImage(ctx context.Context) error {
 }
 
 // buildEnvVars constructs environment variables for the Renovate container.
-// User-provided ExtraEnv values override predefined defaults.
+// Priority chain: protected defaults < overridable defaults + job spec + DB toggle
+//
+//	< RENOVATE_* passthrough (operator env) < ExtraEnv (per-job UI)
 func (e *DockerExecutor) buildEnvVars(job *api.RenovateJob, isDiscovery bool) []string {
 	envMap := make(map[string]string)
 
-	// Predefined defaults
+	// Overridable defaults
 	envMap["RENOVATE_LOG_FORMAT"] = "json"
 	envMap["NODE_NO_WARNINGS"] = "1"
 	envMap["RENOVATE_BASE_DIR"] = "/tmp/renovate"
@@ -767,9 +769,11 @@ func (e *DockerExecutor) buildEnvVars(job *api.RenovateJob, isDiscovery bool) []
 		}
 	}
 
-	// Debug mode
-	if job.Status.ExecutionOptions != nil && job.Status.ExecutionOptions.Debug {
-		envMap["LOG_LEVEL"] = "debug"
+	// Log level from DB toggle: default to debug (required for complete PR activity parsing).
+	if job.Status.ExecutionOptions != nil && !job.Status.ExecutionOptions.Debug {
+		envMap["RENOVATE_LOG_LEVEL"] = "info"
+	} else {
+		envMap["RENOVATE_LOG_LEVEL"] = "debug"
 	}
 
 	// Discovery-specific env vars
@@ -782,28 +786,31 @@ func (e *DockerExecutor) buildEnvVars(job *api.RenovateJob, isDiscovery bool) []
 		}
 	}
 
-	// Pass through token: operator reads RENOVATEOP_TOKEN, container needs RENOVATE_TOKEN
-	if token := os.Getenv("RENOVATEOP_TOKEN"); token != "" {
-		envMap["RENOVATE_TOKEN"] = token
-	}
-
 	// Pass through all RENOVATE_* environment variables from the operator process.
-	// This allows users to configure any Renovate setting via environment variables
-	// without needing to explicitly list them in the job spec.
+	// Always overrides defaults, job spec values, and DB settings.
 	for _, env := range os.Environ() {
 		key, value, ok := strings.Cut(env, "=")
 		if !ok {
 			continue
 		}
-		if strings.HasPrefix(key, "RENOVATE_") {
-			// Only set if not already explicitly configured above
-			if _, exists := envMap[key]; !exists {
-				envMap[key] = value
-			}
+		if strings.HasPrefix(key, "RENOVATE_") && value != "" {
+			envMap[key] = value
 		}
 	}
 
-	// Apply user ExtraEnv overrides (these take priority over predefined values)
+	// Re-enforce protected hardcoded defaults that must not be overridden by passthrough.
+	protectedDefaults := map[string]string{
+		"RENOVATE_LOG_FORMAT": "json",
+		"RENOVATE_BASE_DIR":   "/tmp/renovate",
+	}
+	for k, v := range protectedDefaults {
+		if envMap[k] != v {
+			slog.Warn("ignoring env override for protected container envvar", "key", k, "forced", v)
+			envMap[k] = v
+		}
+	}
+
+	// Apply user ExtraEnv overrides (these take priority over everything)
 	for _, env := range job.Spec.ExtraEnv {
 		envMap[env.Name] = env.Value
 	}

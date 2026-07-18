@@ -7,12 +7,21 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/webhook"
 )
 
-// responseCapture wraps http.ResponseWriter to capture the status code.
+// responseCapture wraps http.ResponseWriter to capture the status code
+// and optional webhook auth result.
 type responseCapture struct {
 	http.ResponseWriter
 	statusCode int
+	authResult *webhook.AuthResult
+}
+
+// SetAuthResult stores the webhook authentication result for access log enrichment.
+func (rc *responseCapture) SetAuthResult(result *webhook.AuthResult) {
+	rc.authResult = result
 }
 
 func (rc *responseCapture) WriteHeader(code int) {
@@ -42,6 +51,17 @@ func accessLogMiddleware(logger *slog.Logger) func(http.Handler) http.Handler {
 				"remote", r.RemoteAddr,
 			}
 
+			// Enrich with auth fields for webhook requests
+			if rc.authResult != nil {
+				attrs = append(attrs, "auth_required", rc.authResult.Required)
+				if rc.authResult.Required {
+					attrs = append(attrs,
+						"auth_methods", rc.authResult.Methods,
+						"auth_result", formatAuthResult(rc.authResult.Success),
+					)
+				}
+			}
+
 			if isHealthPath(path) {
 				logger.Debug("http request", attrs...)
 			} else {
@@ -54,6 +74,14 @@ func accessLogMiddleware(logger *slog.Logger) func(http.Handler) http.Handler {
 // isHealthPath returns true for health/readiness probe paths.
 func isHealthPath(path string) bool {
 	return strings.HasSuffix(path, "/healthz") || strings.HasSuffix(path, "/readyz")
+}
+
+// formatAuthResult returns a human-readable string for the auth outcome.
+func formatAuthResult(success bool) string {
+	if success {
+		return "ok"
+	}
+	return "failed"
 }
 
 // csrfMiddleware checks the Origin header on state-changing requests (POST, PUT, DELETE).

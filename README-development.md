@@ -9,164 +9,148 @@ A standalone Docker-based operator that runs [Renovate](https://github.com/renov
 ## Directory Structure
 
 ```
-src/
-├── api/v1alpha1/          # Kubernetes CRD API types (RenovateJob, specs, status)
-├── assert/                # Fail-fast assertion utilities (panic on critical errors)
-├── clientProvider/        # Kubernetes client factory
-├── cmd/                   # main.go — wires all components together
-├── config/                # Singleton env-var config with schema validation
-├── controllers/           # Kubernetes reconciliation loop (controller-runtime)
-├── gitProviderClients/    # Git provider abstraction (interface + implementations)
-│   ├── factory/           # Factory: creates correct provider from job.Spec.Provider
-│   ├── githubProvider/
-│   ├── gitlabProvider/
-│   ├── giteaProvider/
-│   ├── forgejoProvider/
-│   └── bitbucketProvider/
-├── health/                # Thread-safe health state tracking
-├── internal/
-│   ├── crdManager/        # CRUD on RenovateJob CRDs and Kubernetes Jobs
-│   ├── webhookSync/       # Provider-agnostic repo webhook sync (via GitProviderClient)
-│   ├── parser/            # Extracts discovered repos and dependency issues from Renovate logs
-│   ├── renovate/          # Core engine: discovery, executor, job definitions
-│   ├── types/             # Shared internal types
-│   └── utils/             # Platform endpoints, job naming helpers
-├── metricStore/           # Prometheus metrics
-├── scheduler/             # Cron scheduling wrapper (go-cron)
-├── static/                # Frontend assets (CSS, JS)
-├── ui/                    # Web UI server, auth (OIDC, GitHub OAuth), API endpoints
-└── webhook/               # HTTP webhook server (GitHub, GitLab, Forgejo triggers)
-charts/                    # Helm chart
-docs/                      # Documentation
+cmd/                       # main.go — wires all components together
+config/                    # Singleton env-var config with schema validation
+internal/
+├── api/                   # Standalone type definitions (RenovateJob, specs, status)
+├── discovery/             # Project autodiscovery agent (runs Renovate container)
+├── executor/              # Docker container lifecycle (create, dispatch, events, cleanup)
+├── parser/                # Renovate JSON log parser (PR activity, warnings, errors)
+├── scheduler/             # Cron scheduling wrapper (robfig/cron)
+├── server/                # HTTP server (UI, API, webhook routing, OIDC auth)
+├── statestore/            # SQLite state store (WAL mode) + RenovateJobManager interface
+└── webhook/               # Forgejo webhook handler (push, PR, issue events)
+static/                    # Frontend assets (CSS, JS, React components)
+integration/               # Integration tests (webhook signing, over-the-wire)
 ```
 
 ## Building & Testing
 
 ```bash
 # Build the binary
-go build ./cmd/
+just build
 
-# Run tests
-go test ./...
+# Run all tests
+just test-unit
 
-# Run locally (requires Docker and PLATFORM_ENDPOINT)
-export PLATFORM_ENDPOINT="https://git.example.com"
-export RENOVATEOP_TOKEN="your-token"
-export SQLITE_PATH="./test.db"
-./renovate-docker-operator
+# Run tests with race detection (quick iteration)
+go test -count=1 -race ./...
+
+# Run integration tests (webhook signing, over-the-wire)
+just test-integration
+
+# Lint + test in one command
+just check
+
+# Run locally (requires Docker and ROP_PLATFORM_ENDPOINT)
+export ROP_PLATFORM_ENDPOINT="https://git.example.com"
+export ROP_TOKEN="your-token"
+export ROP_SQLITE_PATH="./test.db"
+just run
 ```
+
+### Test Coverage
+
+| Package | Tests | Style |
+| --------- | ------- | ------- |
+| `internal/statestore` | SQLite operations, migrations, HMAC validation | Unit + integration |
+| `internal/webhook` | Forgejo event filtering, signature validation, scheduling | E2E with httptest |
+| `internal/parser` | Renovate log parsing, PR activity extraction | Unit (table-driven) |
+| `internal/server` | HTTP routing, API endpoints | E2E with httptest |
+| `internal/scheduler` | Cron scheduling, start/stop lifecycle | E2E with real cron |
+| `internal/executor` | Env var construction, name sanitization, Docker stream detection | Unit (table-driven) |
+| `internal/discovery` | Constructor safety, nil handling | Unit |
+| `integration/` | Webhook signing token validation over HTTP | Integration |
 
 ### Verification Commands
 
-Use the following commands to validate the code before submitting changes:
-
 - `just build` — compile the project
-- `just test-unit` — run unit tests
-- `just generate` — regenerate code (CRD manifests, deepcopy, etc.)
+- `just test-unit` — run all unit/E2E tests via gotestsum
+- `just test-integration` — run integration tests (requires running instance)
+- `just check` — lint + test in one command
+- `just golangci-lint` — run linter only
 
 ## Coding Conventions
 
-### 1. Everything is Generic — Program to Interfaces
+### 1. Program to Interfaces
 
-This is the most important rule. **Any component that touches a Git provider, scheduler, executor, or external system must be expressed as an interface.** New code must never be coupled to a concrete implementation.
+**Any component that touches external systems should be expressed as an interface.** This enables testing and future extensibility.
 
-- Define the interface first, then implement it per platform/provider.
-- Add new Git providers by implementing `GitProviderClient` — never add provider-specific branches to shared code.
-- Existing interfaces to extend (not replace):
-  - `gitProviderClients.GitProviderClient` — repository info (fork & pending-deletion detection, fetched in one call), webhooks, repo search
-  - `ui.AuthProvider` — authentication backends
-  - `internal/renovate.DiscoveryAgent`, `RenovateExecutor`
-  - `scheduler.Scheduler`
+- Key interface: `statestore.RenovateJobManager` — all state access goes through this
+- The `executor.DockerExecutor` is currently a concrete struct (Docker SDK dependency); future refactoring may extract an interface for testability
 
-### 2. Git Provider Factory Pattern
+### 2. Docker Container–Based Execution
 
-Provider clients are created exclusively through the factory in `gitProviderClients/factory/`. The factory reads `job.Spec.Provider` and returns the appropriate `GitProviderClient` implementation. When adding a new provider:
+Renovate runs are launched as Docker containers via the Docker SDK. Key patterns:
 
-1. Create a new package under `gitProviderClients/<providerName>Provider/`
-2. Implement the full `GitProviderClient` interface
-3. Register it in the factory
+- Containers are labeled with `renovate-standalone/*` labels for identification and lifecycle tracking
+- The executor listens to Docker events (container `die`) to handle exit processing
+- Orphan reconciliation runs periodically to re-adopt or clean up missed containers
+- Container names are generated via `sanitizeName()` — always use it for Docker-safe naming
 
-Never instantiate a provider client directly outside the factory.
-
-### 3. Kubernetes Job–Based Execution
-
-Renovate runs are launched as Kubernetes Jobs (not bare Pods). This ensures:
-
-- TTL-based cleanup via `ttlSecondsAfterFinished`
-- Restart policies and retry semantics
-- Label-based selection (`renovate-operator.mogenius.com/job-type`, `job-name`, `generation`)
-
-Job templates are built in `internal/renovate/jobDefinitions.go`. Extend templates there — never build job specs inline in other packages.
-
-### 4. Configuration
+### 3. Configuration
 
 All configuration is environment-variable driven via the singleton in `config/`. Rules:
 
 - Declare new config values in the config schema (with `Optional`/`Required` and defaults)
 - Access config values via `config.GetValue()` — never read `os.Getenv` directly elsewhere
-- Keep the config schema the single source of truth for what the operator accepts
+- The operator reads `ROP_TOKEN` and passes it to containers as `RENOVATE_TOKEN`
+- All `RENOVATE_*` env vars from the operator process are passed through to containers (always override)
 
-### 5. Error Handling
+### 4. Error Handling
 
 - Use `fmt.Errorf("context: %w", err)` for wrapping and propagating errors in normal paths
-- Use `assert.NoError()` / `assert.Assert()` only for truly unrecoverable startup/initialization failures
-- Fail open on external API errors where exclusion would be worse than inclusion (e.g., fork filtering keeps repos if the API call fails)
+- Fail open on external API errors where exclusion would be worse than inclusion
+- Container failures are tracked per-project in the state store with exit codes
 
-### 6. Concurrency
+### 5. Concurrency
 
-- Use `sync.Mutex` / `sync.RWMutex` to protect shared state
-- Use channel-based semaphores to cap parallelism on external API calls (see `forkFilter.go` for the pattern — max 10 concurrent goroutines)
-- The executor polls every 10 seconds and respects the `parallelism` field from the CRD
+- Use `sync.Mutex` / `sync.RWMutex` to protect shared state (see `executor.DockerExecutor.mu`)
+- The executor polls every 10 seconds and respects the `parallelism` config
+- Docker event listener uses a bounded goroutine pool (`exitPool`) to handle concurrent container exits
 
-### 7. Logging
+### 6. Logging
 
-Use the `logr.Logger` interface throughout (injected, never obtained globally). Follow these conventions:
+Use `log/slog` throughout (injected via constructor, never obtained globally). Follow these conventions:
 
-- `logger.Info(...)` for normal operational events
-- `logger.V(1).Info(...)` for verbose/debug output
-- `logger.Error(err, ...)` for errors with context
+- `logger.Info("message", "key", value)` for normal operational events
+- `logger.Error("message", "error", err)` for errors with context
+- `logger.Warn("message", ...)` for non-fatal issues
 - Never use `fmt.Println` or `log.Print` in production code paths
 
-### 8. Kubernetes Reconciler Pattern
+### 7. Health Checks
 
-Controllers use `controller-runtime` reconciliation. In reconcilers:
+Health is exposed via `/healthz` endpoint on the HTTP server. The executor verifies Docker connectivity via `Ping()` at startup.
 
-- Return `ctrl.Result{RequeueAfter: ...}` for scheduled requeues
-- Return `ctrl.Result{}, err` to trigger immediate retry on error
-- Keep reconcilers idempotent — rerunning the same reconcile must be safe
+### 8. Naming Conventions
 
-### 9. Health Checks
-
-Health state is managed centrally in the `health/` package with thread-safe setters. Update health state there rather than managing it locally in components. Health is exposed via the operator's HTTP health endpoint.
-
-### 10. Naming Conventions
-
-- Kubernetes Job names are generated in `internal/utils/jobNames.go` — use helpers there for consistent naming
-- Platform API base URLs are resolved in `internal/utils/platformEndpoints.go`
-- Labels follow the pattern `renovate-operator.mogenius.com/<key>`
+- Docker container names: `renovate-<sanitized-project>-<unix-timestamp>`
+- Discovery containers: `renovate-discovery-<sanitized-job>-<unix-timestamp>`
+- Labels: `renovate-standalone/project`, `renovate-standalone/job-name`, `renovate-standalone/type`
 
 ## Technology Stack
 
 | Concern | Library |
-||---|
-| Operator framework | `sigs.k8s.io/controller-runtime` |
-| Scheduling | `github.com/netresearch/go-cron` |
+| --------- | ---------- |
+| Container orchestration | `github.com/docker/docker` (Docker SDK) |
+| Scheduling | `github.com/robfig/cron/v3` |
 | HTTP routing | `github.com/gorilla/mux` |
-| Metrics | `github.com/prometheus/client_golang` |
-| Logging | `github.com/go-logr/logr` + `go.uber.org/zap` |
+| State persistence | `modernc.org/sqlite` (pure-Go SQLite) |
+| Logging | `log/slog` (standard library) |
 | OIDC auth | `github.com/coreos/go-oidc` + `golang.org/x/oauth2` |
 
 ## Key Architectural Decisions
 
-- **Leader election** — only the leader runs the executor and scheduler to prevent duplicate job launches.
-- **Platform credentials** live in Kubernetes Secrets, referenced from the CRD — never hardcoded.
-- **Webhook servers** are platform-specific (`/webhook/v1/gitlab`, `/github`, `/forgejo`, `/gitea`, `/bitbucket`) but trigger the same internal scheduling interface.
-- **Webhook sync is provider-agnostic and stateless** — after each discovery run, `crdManager.SyncWebhooks` ensures the operator's webhook exists on every discovered project (config: `spec.webhook.sync`) and removes it from the repos `ReconcileProjects` reported as removed. Hooks are identified by their delivery URL — no state is stored. The `webhook-cleanup` finalizer on the RenovateJob removes all hooks on deletion (best effort, never blocks deletion). The sync logic lives in `internal/webhookSync.Sync`, all platform access goes through `GitProviderClient` (implemented for all five providers). Sync uses the job's Renovate token by default; an optional dedicated webhook-management token can be set via `spec.webhook.sync.secretRef` (factory method `NewClientWithTokenRef`). Sync failures are logged, never block discovery (fail open).
-- **Discovery uses Renovate itself** — a discovery Job runs Renovate with `autodiscover: true` and its JSON logs are parsed to extract repositories.
-- **Executor uses two passes per tick** — Pass 1 (`countRunningProjects`) tallies how many projects are still in `Running` status across all RenovateJobs (purely in-memory, no API calls); Pass 2 (`dispatchScheduled`) collects all Scheduled projects into a flat sorted list and dispatches new k8s Jobs up to the global and per-job parallelism limits. Running project status transitions are handled reactively by the `job_controller` (`ProcessProjectJobResult`) when k8s Jobs complete, not by the executor tick.
-- **Global parallelism limit** — `GLOBAL_PARALLELISM_LIMIT` env var (Helm: `config.globalParallelismLimit`, default `0` = unlimited) caps total concurrent executor jobs across all RenovateJobs. Per-job `Spec.Parallelism` is still enforced as an additional gate.
-- **Anti-starvation via priority-then-oldest-wait sort** — in Pass 2, candidates are sorted first by `Priority` descending, then by the oldest `LastRun` time among Scheduled projects in their RenovateJob. Among equal-priority candidates, the job that has been waiting longest dispatches first, preventing starvation.
-- **UI sub-path (`BASE_PATH`)** — the UI, API, auth and health routes can be served under a sub-path so the operator can be co-hosted with other apps on one hostname. `BASE_PATH` env (Helm: top-level `basePath`, default `""` = root) is normalized in `ui.BasePath()` (leading slash, no trailing slash). `server.go` mounts all routes on a `PathPrefix(basePath)` subrouter and redirects `/` → base path; `ui.go` strips the prefix for static files and injects `<base href>` + `window.__BASE_PATH__` into `index.html`/`logs.html`; the frontend builds all runtime URLs from `BASE`; auth redirects use `withBase()` and cookies are scoped via `cookiePath()`. The Helm `basePath` also drives the Ingress/HTTPRoute path and is appended to auto-detected OAuth/OIDC redirect URLs (`renovate-operator.basePath` helper). OAuth/OIDC redirect URLs registered with the identity provider must include the sub-path.
+- **Single-process design** — one binary runs the scheduler, executor, webhook server, and UI. No leader election needed (unlike the upstream K8s operator).
+- **Platform credentials** are passed via environment variables (`ROP_TOKEN`) — the operator injects them into containers as `RENOVATE_TOKEN`.
+- **Webhook server** handles Forgejo events at `/webhook/v1/forgejo?job=<name>`. Events are validated (HMAC-SHA256 or Standard Webhooks signatures), filtered (branch, event type), and then schedule projects for immediate execution.
+- **Webhook sync is stateless** — after each discovery run, `statestore.SyncWebhooks` ensures the operator's webhook exists on every discovered project and removes it from repos that were removed during reconciliation. Hooks are identified by their delivery URL. Sync failures are logged, never block discovery (fail open).
+- **Discovery uses Renovate itself** — a discovery container runs Renovate with `autodiscover: true` and writes discovered repos to a JSON file, which is read from the container's stdout.
+- **Executor dispatch loop** — polls every 10 seconds, collects all `scheduled` projects sorted by priority (descending) then oldest-wait, and dispatches Docker containers up to the parallelism limit. Container exit events trigger immediate re-dispatch.
+- **Global parallelism limit** — `ROP_GLOBAL_PARALLELISM` env var caps total concurrent Renovate containers. Per-job `Spec.Parallelism` is still enforced as an additional gate.
+- **Anti-starvation via priority-then-oldest-wait sort** — candidates are sorted first by `Priority` descending, then by the oldest `LastRun` time. Among equal-priority candidates, the job that has been waiting longest dispatches first.
+- **UI sub-path (`ROP_BASE_PATH`)** — the UI, API, auth and health routes can be served under a sub-path. `server.go` mounts all routes on a `PathPrefix(basePath)` subrouter; the frontend builds all runtime URLs from `window.__BASE_PATH__`.
+- **Docker stream demultiplexing** — container logs may be in Docker multiplexed format (8-byte frame headers) or raw (Podman/TTY). The `isDockerMultiplexed()` heuristic detects the format and `stdcopy.StdCopy` demuxes when needed.
 
 ## Maintaining This Document
 
