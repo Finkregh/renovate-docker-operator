@@ -129,7 +129,7 @@ func (h *Handler) HandleForgejo(w http.ResponseWriter, r *http.Request) {
 	jobName := r.URL.Query().Get("job")
 	project := payload.Repository.FullName
 
-	jobID, err := h.findAndAuthenticateJob(r.Context(), jobName, project, r, body)
+	jobID, err := h.findAndAuthenticateJob(r.Context(), jobName, project, w, r, body)
 	if err != nil {
 		h.handleResolverError(w, err, event, project)
 		return
@@ -194,7 +194,7 @@ func (h *Handler) HandleSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jobID, err := h.findAndAuthenticateJob(r.Context(), jobName, project, r, body)
+	jobID, err := h.findAndAuthenticateJob(r.Context(), jobName, project, w, r, body)
 	if err != nil {
 		h.handleResolverError(w, err, "schedule", project)
 		return
@@ -225,7 +225,7 @@ func (h *Handler) HandleSchedule(w http.ResponseWriter, r *http.Request) {
 }
 
 // findAndAuthenticateJob resolves the RenovateJob for the request and validates authentication.
-func (h *Handler) findAndAuthenticateJob(ctx context.Context, jobName, project string, r *http.Request, body []byte) (statestore.RenovateJobIdentifier, error) {
+func (h *Handler) findAndAuthenticateJob(ctx context.Context, jobName, project string, w http.ResponseWriter, r *http.Request, body []byte) (statestore.RenovateJobIdentifier, error) {
 	jobs, err := h.store.ListRenovateJobsFull(ctx)
 	if err != nil {
 		return statestore.RenovateJobIdentifier{}, err
@@ -236,18 +236,28 @@ func (h *Handler) findAndAuthenticateJob(ctx context.Context, jobName, project s
 		return statestore.RenovateJobIdentifier{}, resolveErr
 	}
 
+	var lastAuthResult *AuthResult
 	for _, job := range candidates {
 		id := statestore.RenovateJobIdentifier{Name: job.Name}
 
 		// No auth required if webhook authentication is disabled
 		if job.Spec.Webhook == nil || job.Spec.Webhook.Authentication == nil || !job.Spec.Webhook.Authentication.Enabled {
+			SetAuthOnResponse(w, &AuthResult{Required: false})
 			return id, nil
 		}
 
 		// Try to authenticate
-		if h.authenticate(ctx, id, r, body) {
+		ok, authResult := h.authenticate(ctx, id, r, body)
+		lastAuthResult = authResult
+		if ok {
+			SetAuthOnResponse(w, authResult)
 			return id, nil
 		}
+	}
+
+	// Store the last auth result before returning failure
+	if lastAuthResult != nil {
+		SetAuthOnResponse(w, lastAuthResult)
 	}
 
 	return statestore.RenovateJobIdentifier{}, ErrAuthenticationFailed
@@ -255,26 +265,41 @@ func (h *Handler) findAndAuthenticateJob(ctx context.Context, jobName, project s
 
 // authenticate validates the webhook request using available credentials.
 // It tries ALL signature methods and returns true if ANY succeeds.
-func (h *Handler) authenticate(ctx context.Context, jobID statestore.RenovateJobIdentifier, r *http.Request, body []byte) bool {
+// The returned AuthResult records which methods were attempted and their outcome.
+func (h *Handler) authenticate(ctx context.Context, jobID statestore.RenovateJobIdentifier, r *http.Request, body []byte) (bool, *AuthResult) {
+	result := &AuthResult{Required: true, Success: false}
+
 	// Try X-Forgejo-Signature (raw hex HMAC-SHA256)
 	if sig := r.Header.Get("X-Forgejo-Signature"); sig != "" {
-		if ok, err := h.store.IsWebhookSignatureValid(ctx, jobID, sig, body); err == nil && ok {
-			return true
+		ok, err := h.store.IsWebhookSignatureValid(ctx, jobID, sig, body)
+		verified := err == nil && ok
+		result.Methods = append(result.Methods, AuthAttempt{Type: "X-Forgejo-Signature", Verified: verified})
+		if verified {
+			result.Success = true
+			return true, result
 		}
 	}
 
 	// Try X-Gitea-Signature (raw hex HMAC-SHA256)
 	if sig := r.Header.Get("X-Gitea-Signature"); sig != "" {
-		if ok, err := h.store.IsWebhookSignatureValid(ctx, jobID, sig, body); err == nil && ok {
-			return true
+		ok, err := h.store.IsWebhookSignatureValid(ctx, jobID, sig, body)
+		verified := err == nil && ok
+		result.Methods = append(result.Methods, AuthAttempt{Type: "X-Gitea-Signature", Verified: verified})
+		if verified {
+			result.Success = true
+			return true, result
 		}
 	}
 
 	// Try X-Hub-Signature-256 (sha256=<hex> format — strip prefix before comparison)
 	if sig := r.Header.Get("X-Hub-Signature-256"); sig != "" {
 		raw := strings.TrimPrefix(sig, "sha256=")
-		if ok, err := h.store.IsWebhookSignatureValid(ctx, jobID, raw, body); err == nil && ok {
-			return true
+		ok, err := h.store.IsWebhookSignatureValid(ctx, jobID, raw, body)
+		verified := err == nil && ok
+		result.Methods = append(result.Methods, AuthAttempt{Type: "X-Hub-Signature-256", Verified: verified})
+		if verified {
+			result.Success = true
+			return true, result
 		}
 	}
 
@@ -285,19 +310,27 @@ func (h *Handler) authenticate(ctx context.Context, jobID statestore.RenovateJob
 			parts := strings.SplitN(authHeader, " ", 2)
 			token = strings.TrimSpace(parts[1])
 		}
-		if ok, err := h.store.IsWebhookTokenValid(ctx, jobID, token); err == nil && ok {
-			return true
+		ok, err := h.store.IsWebhookTokenValid(ctx, jobID, token)
+		verified := err == nil && ok
+		result.Methods = append(result.Methods, AuthAttempt{Type: "Authorization", Verified: verified})
+		if verified {
+			result.Success = true
+			return true, result
 		}
 	}
 
 	// Try X-Gitlab-Token
 	if token := r.Header.Get("X-Gitlab-Token"); token != "" {
-		if ok, err := h.store.IsWebhookTokenValid(ctx, jobID, token); err == nil && ok {
-			return true
+		ok, err := h.store.IsWebhookTokenValid(ctx, jobID, token)
+		verified := err == nil && ok
+		result.Methods = append(result.Methods, AuthAttempt{Type: "X-Gitlab-Token", Verified: verified})
+		if verified {
+			result.Success = true
+			return true, result
 		}
 	}
 
-	return false
+	return false, result
 }
 
 // filterCandidates filters jobs based on job name, webhook enabled state, and project membership.
