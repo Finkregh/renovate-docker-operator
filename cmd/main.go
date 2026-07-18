@@ -65,6 +65,7 @@ func run() error {
 		JobTimeout:      cfg.JobTimeout,
 		GracePeriod:     cfg.GracePeriod,
 		ImagePullPolicy: cfg.ImagePullPolicy,
+		ImageCacheTTL:   cfg.ImageCacheTTL,
 	}
 
 	exec, err := executor.New(execCfg, store, logger)
@@ -73,7 +74,8 @@ func run() error {
 	}
 
 	// Verify Docker connectivity
-	ctx := context.Background()
+	ctx, ctxCancel := context.WithCancel(context.Background())
+	defer ctxCancel()
 	if err := exec.Ping(ctx); err != nil {
 		return fmt.Errorf("docker connectivity check failed: %w", err)
 	}
@@ -97,7 +99,7 @@ func run() error {
 	sched.Start()
 
 	// 8. Start unified HTTP server (UI + webhook + health + API)
-	srv := server.New(store, disc, sched, logger, "0.1.0")
+	srv := server.New(store, disc, sched, logger, "0.1.0", cfg.MaxRequestBody)
 	srv.Start()
 
 	logger.Info("operator started — waiting for signals")
@@ -121,6 +123,9 @@ func run() error {
 
 	sched.Stop()
 	logger.Info("cron scheduler stopped")
+
+	// Cancel the main context to signal all goroutines to stop
+	ctxCancel()
 
 	if err := exec.Stop(); err != nil {
 		logger.Error("executor stop error", "error", err)

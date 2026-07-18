@@ -429,7 +429,7 @@ func TestAuthenticate(t *testing.T) {
 	mac.Write(body)
 	validHex := fmt.Sprintf("%x", mac.Sum(nil))
 
-	handler := NewHandler(&mockStore{secret: secret, token: token}, slog.Default())
+	handler := NewHandler(&mockStore{secret: secret, token: token}, slog.Default(), 2*1024*1024)
 	jobID := statestore.RenovateJobIdentifier{Name: "test-job"}
 
 	tests := []struct {

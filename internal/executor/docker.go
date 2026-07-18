@@ -46,6 +46,7 @@ type Config struct {
 	JobTimeout      time.Duration
 	GracePeriod     time.Duration
 	ImagePullPolicy string // "always", "if-not-present", "never"
+	ImageCacheTTL   time.Duration
 }
 
 // DockerExecutor manages Renovate container lifecycle via the Docker API.
@@ -62,11 +63,13 @@ type DockerExecutor struct {
 	jobTimeout      time.Duration
 	gracePeriod     time.Duration
 	imagePullPolicy string
+	imageCacheTTL   time.Duration
 
 	// Runtime state
-	mu      sync.Mutex
-	running map[string]string // project → containerID
-	stopCh  chan struct{}
+	mu         sync.Mutex
+	running    map[string]string // project → containerID
+	imageCache map[string]time.Time // image tag → last-checked time
+	stopCh     chan struct{}
 }
 
 // New creates a new DockerExecutor with the given configuration.
@@ -114,7 +117,9 @@ func New(cfg Config, store statestore.RenovateJobManager, logger *slog.Logger) (
 		jobTimeout:      cfg.JobTimeout,
 		gracePeriod:     cfg.GracePeriod,
 		imagePullPolicy: cfg.ImagePullPolicy,
+		imageCacheTTL:   cfg.ImageCacheTTL,
 		running:         make(map[string]string),
+		imageCache:      make(map[string]time.Time),
 		stopCh:          make(chan struct{}),
 	}, nil
 }
@@ -171,6 +176,9 @@ func (e *DockerExecutor) Stop() error {
 	e.mu.Unlock()
 
 	if len(containers) == 0 {
+		if err := e.docker.Close(); err != nil {
+			e.logger.Error("error closing docker client", "error", err)
+		}
 		return nil
 	}
 
@@ -193,6 +201,10 @@ func (e *DockerExecutor) Stop() error {
 		e.mu.Unlock()
 	}
 
+	if err := e.docker.Close(); err != nil {
+		e.logger.Error("error closing docker client", "error", err)
+	}
+
 	return nil
 }
 
@@ -205,9 +217,9 @@ func (e *DockerExecutor) DispatchDiscovery(ctx context.Context, job *api.Renovat
 		return nil, fmt.Errorf("pull image for discovery: %w", err)
 	}
 
-	envVars := e.buildEnvVars(job, "", true)
+	envVars := e.buildEnvVars(job, true)
 
-	discoveryCmd := `/bin/sh -c 'BASE_DIR="${RENOVATE_BASE_DIR:-/tmp}"; renovate --autodiscover --write-discovered-repos "$BASE_DIR/repos.json" >> "$BASE_DIR/logs.json" 2>&1 && cat "$BASE_DIR/repos.json" || cat "$BASE_DIR/logs.json"'`
+	discoveryCmd := `BASE_DIR="${RENOVATE_BASE_DIR:-/tmp}"; renovate --autodiscover --write-discovered-repos "$BASE_DIR/repos.json" >> "$BASE_DIR/logs.json" 2>&1 && cat "$BASE_DIR/repos.json" || cat "$BASE_DIR/logs.json"`
 
 	labels := map[string]string{
 		labelJobName:   job.Name,
@@ -335,17 +347,23 @@ func (e *DockerExecutor) doDispatch(ctx context.Context) {
 				break
 			}
 
+			// Reserve the slot under the mutex before dispatching
 			e.mu.Lock()
-			_, alreadyRunning := e.running[proj.Name]
-			e.mu.Unlock()
-
-			if alreadyRunning {
+			if _, alreadyRunning := e.running[proj.Name]; alreadyRunning {
+				e.mu.Unlock()
 				continue
 			}
+			// Reserve slot with empty container ID (will be filled by dispatchProject)
+			e.running[proj.Name] = ""
+			e.mu.Unlock()
 
 			if err := e.dispatchProject(ctx, job, proj.Name); err != nil {
 				e.logger.Error("failed to dispatch project",
 					"project", proj.Name, "job", job.Name, "error", err)
+				// Release the reserved slot on failure
+				e.mu.Lock()
+				delete(e.running, proj.Name)
+				e.mu.Unlock()
 				continue
 			}
 			runningCount++
@@ -361,7 +379,7 @@ func (e *DockerExecutor) dispatchProject(ctx context.Context, job *api.RenovateJ
 		return fmt.Errorf("pull image: %w", err)
 	}
 
-	envVars := e.buildEnvVars(job, project, false)
+	envVars := e.buildEnvVars(job, false)
 	now := time.Now().UTC()
 
 	labels := map[string]string{
@@ -397,7 +415,12 @@ func (e *DockerExecutor) dispatchProject(ctx context.Context, job *api.RenovateJ
 		return fmt.Errorf("start container: %w", err)
 	}
 
-	// Update state store
+	// Immediately update state store and running map after successful start
+	// to minimize the orphan window.
+	e.mu.Lock()
+	e.running[project] = containerID
+	e.mu.Unlock()
+
 	jobID := statestore.RenovateJobIdentifier{Name: job.Name}
 	if err := e.store.UpdateProjectStatus(ctx, project, jobID, &statestore.RenovateStatusUpdate{
 		Status: api.JobStatusRunning,
@@ -405,11 +428,6 @@ func (e *DockerExecutor) dispatchProject(ctx context.Context, job *api.RenovateJ
 		e.logger.Error("failed to update project status to running",
 			"project", project, "error", err)
 	}
-
-	// Track in running map
-	e.mu.Lock()
-	e.running[project] = containerID
-	e.mu.Unlock()
 
 	e.logger.Info("container started", "project", project, "container", containerID)
 	return nil
@@ -424,6 +442,9 @@ func (e *DockerExecutor) listenEvents(ctx context.Context, triggerDispatch func(
 
 	eventsCh, errCh := e.docker.Events(ctx, events.ListOptions{Filters: f})
 
+	// Limit concurrent exit-handling goroutines
+	exitPool := make(chan struct{}, max(e.parallelism*2, 8))
+
 	for {
 		select {
 		case <-e.stopCh:
@@ -432,13 +453,21 @@ func (e *DockerExecutor) listenEvents(ctx context.Context, triggerDispatch func(
 			return
 		case err := <-errCh:
 			if err != nil {
+				if ctx.Err() != nil {
+					return
+				}
 				e.logger.Error("docker events error, reconnecting", "error", err)
 				time.Sleep(5 * time.Second)
+				if ctx.Err() != nil {
+					return
+				}
 				eventsCh, errCh = e.docker.Events(ctx, events.ListOptions{Filters: f})
 			}
 		case event := <-eventsCh:
 			if event.Action == "die" {
+				exitPool <- struct{}{}
 				go func(containerID string) {
+					defer func() { <-exitPool }()
 					e.handleContainerExit(ctx, containerID)
 					triggerDispatch()
 				}(event.Actor.ID)
@@ -621,6 +650,19 @@ func (e *DockerExecutor) reconcileOrphans(ctx context.Context) error {
 							e.mu.Lock()
 							e.running[project] = c.ID
 							e.mu.Unlock()
+
+							// Sync state store so the project reflects running status
+							jobName := c.Labels[labelJobName]
+							if jobName != "" {
+								jobID := statestore.RenovateJobIdentifier{Name: jobName}
+								if err := e.store.UpdateProjectStatus(ctx, project, jobID, &statestore.RenovateStatusUpdate{
+									Status: api.JobStatusRunning,
+								}); err != nil {
+									e.logger.Error("failed to update state store after re-adoption",
+										"project", project, "error", err)
+								}
+							}
+
 							e.logger.Info("re-adopted orphan container",
 								"container", c.ID[:12], "project", project)
 						}
@@ -645,17 +687,45 @@ func (e *DockerExecutor) pullImage(ctx context.Context) error {
 	case "never":
 		return nil
 	case "if-not-present":
+		// Check image cache first (if TTL > 0)
+		if e.imageCacheTTL > 0 {
+			e.mu.Lock()
+			if lastCheck, ok := e.imageCache[e.image]; ok && time.Since(lastCheck) < e.imageCacheTTL {
+				e.mu.Unlock()
+				return nil
+			}
+			e.mu.Unlock()
+		}
 		// Check if image exists locally
 		_, err := e.docker.ImageInspect(ctx, e.image)
 		if err == nil {
+			// Image present — update cache
+			if e.imageCacheTTL > 0 {
+				e.mu.Lock()
+				e.imageCache[e.image] = time.Now()
+				e.mu.Unlock()
+			}
 			return nil // Already present
 		}
 	case "always":
 		// Always pull
 	default:
 		// Default to if-not-present behavior
+		if e.imageCacheTTL > 0 {
+			e.mu.Lock()
+			if lastCheck, ok := e.imageCache[e.image]; ok && time.Since(lastCheck) < e.imageCacheTTL {
+				e.mu.Unlock()
+				return nil
+			}
+			e.mu.Unlock()
+		}
 		_, err := e.docker.ImageInspect(ctx, e.image)
 		if err == nil {
+			if e.imageCacheTTL > 0 {
+				e.mu.Lock()
+				e.imageCache[e.image] = time.Now()
+				e.mu.Unlock()
+			}
 			return nil
 		}
 	}
@@ -668,12 +738,19 @@ func (e *DockerExecutor) pullImage(ctx context.Context) error {
 	defer func() { _ = reader.Close() }()
 	// Drain the reader to complete the pull
 	_, _ = io.Copy(io.Discard, reader)
+
+	// Update cache after successful pull
+	if e.imageCacheTTL > 0 {
+		e.mu.Lock()
+		e.imageCache[e.image] = time.Now()
+		e.mu.Unlock()
+	}
 	return nil
 }
 
 // buildEnvVars constructs environment variables for the Renovate container.
 // User-provided ExtraEnv values override predefined defaults.
-func (e *DockerExecutor) buildEnvVars(job *api.RenovateJob, _ string, isDiscovery bool) []string {
+func (e *DockerExecutor) buildEnvVars(job *api.RenovateJob, isDiscovery bool) []string {
 	envMap := make(map[string]string)
 
 	// Predefined defaults

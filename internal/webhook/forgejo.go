@@ -62,15 +62,17 @@ type ForgejoUser struct {
 
 // Handler processes Forgejo webhook requests and schedules Renovate jobs.
 type Handler struct {
-	store  statestore.RenovateJobManager
-	logger *slog.Logger
+	store          statestore.RenovateJobManager
+	logger         *slog.Logger
+	maxRequestBody int64
 }
 
 // NewHandler creates a new webhook handler.
-func NewHandler(store statestore.RenovateJobManager, logger *slog.Logger) *Handler {
+func NewHandler(store statestore.RenovateJobManager, logger *slog.Logger, maxRequestBody int64) *Handler {
 	return &Handler{
-		store:  store,
-		logger: logger,
+		store:          store,
+		logger:         logger,
+		maxRequestBody: maxRequestBody,
 	}
 }
 
@@ -82,8 +84,13 @@ func (h *Handler) HandleForgejo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, h.maxRequestBody)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		if isMaxBytesError(err) {
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "request body too large"})
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to read request body"})
 		return
 	}
@@ -156,8 +163,13 @@ func (h *Handler) HandleSchedule(w http.ResponseWriter, r *http.Request) {
 
 	jobName := r.URL.Query().Get("job")
 
+	r.Body = http.MaxBytesReader(w, r.Body, h.maxRequestBody)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		if isMaxBytesError(err) {
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "request body too large"})
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to read request body"})
 		return
 	}
@@ -409,4 +421,10 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(data)
+}
+
+// isMaxBytesError checks if the error is due to exceeding the max request body size.
+func isMaxBytesError(err error) bool {
+	var maxBytesErr *http.MaxBytesError
+	return errors.As(err, &maxBytesErr)
 }
