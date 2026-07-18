@@ -916,7 +916,10 @@
                   j.name === job.name && j.namespace === job.namespace
                     ? {
                         ...j,
-                        executionOptions: { ...j.executionOptions, debug: options.debug },
+                        executionOptions: {
+                          ...j.executionOptions,
+                          debug: options.debug,
+                        },
                         webhookEnabled: options.webhookEnabled,
                       }
                     : j,
@@ -2007,7 +2010,10 @@
                         </label>
                         <button
                           onClick={() => {
-                            onSaveExecutionOptions(job, { debug: debugOption, webhookEnabled: webhookOption });
+                            onSaveExecutionOptions(job, {
+                              debug: debugOption,
+                              webhookEnabled: webhookOption,
+                            });
                             setShowOptions(false);
                           }}
                           className="w-full bg-primary hover:bg-primary-hover text-white px-3 py-2 rounded-lg text-sm font-semibold transition-colors"

@@ -67,7 +67,7 @@ type DockerExecutor struct {
 
 	// Runtime state
 	mu         sync.Mutex
-	running    map[string]string // project → containerID
+	running    map[string]string    // project → containerID
 	imageCache map[string]time.Time // image tag → last-checked time
 	stopCh     chan struct{}
 }
@@ -785,6 +785,22 @@ func (e *DockerExecutor) buildEnvVars(job *api.RenovateJob, isDiscovery bool) []
 	// Pass through token: operator reads RENOVATEOP_TOKEN, container needs RENOVATE_TOKEN
 	if token := os.Getenv("RENOVATEOP_TOKEN"); token != "" {
 		envMap["RENOVATE_TOKEN"] = token
+	}
+
+	// Pass through all RENOVATE_* environment variables from the operator process.
+	// This allows users to configure any Renovate setting via environment variables
+	// without needing to explicitly list them in the job spec.
+	for _, env := range os.Environ() {
+		key, value, ok := strings.Cut(env, "=")
+		if !ok {
+			continue
+		}
+		if strings.HasPrefix(key, "RENOVATE_") {
+			// Only set if not already explicitly configured above
+			if _, exists := envMap[key]; !exists {
+				envMap[key] = value
+			}
+		}
 	}
 
 	// Apply user ExtraEnv overrides (these take priority over predefined values)
