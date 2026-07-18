@@ -36,10 +36,21 @@ func (s *Scheduler) Start() {
 }
 
 // Stop gracefully stops the cron scheduler and waits for running jobs to finish.
+// If jobs don't complete within 60 seconds, it forces a return.
 func (s *Scheduler) Stop() {
 	s.logger.Info("stopping cron scheduler")
 	ctx := s.cron.Stop()
-	<-ctx.Done()
+	done := make(chan struct{})
+	go func() {
+		<-ctx.Done()
+		close(done)
+	}()
+	select {
+	case <-done:
+		s.logger.Info("scheduler stopped gracefully")
+	case <-time.After(60 * time.Second):
+		s.logger.Warn("scheduler stop timed out after 60s, forcing shutdown")
+	}
 }
 
 // GetNextRunOnSchedule parses a cron expression and returns the next time it fires.

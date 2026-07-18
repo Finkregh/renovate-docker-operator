@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -25,13 +26,14 @@ import (
 
 // Server is the unified HTTP server that handles UI, webhook, health and API.
 type Server struct {
-	store     statestore.RenovateJobManager
-	discovery *discovery.Agent
-	scheduler *scheduler.Scheduler
-	webhook   *webhook.Handler
-	logger    *slog.Logger
-	server    *http.Server
-	version   string
+	store          statestore.RenovateJobManager
+	discovery      *discovery.Agent
+	scheduler      *scheduler.Scheduler
+	webhook        *webhook.Handler
+	logger         *slog.Logger
+	server         *http.Server
+	version        string
+	maxRequestBody int64
 }
 
 // Config holds server configuration.
@@ -47,15 +49,17 @@ func New(
 	sched *scheduler.Scheduler,
 	logger *slog.Logger,
 	version string,
+	maxRequestBody int64,
 ) *Server {
-	wh := webhook.NewHandler(store, logger)
+	wh := webhook.NewHandler(store, logger, maxRequestBody)
 	return &Server{
-		store:     store,
-		discovery: disc,
-		scheduler: sched,
-		webhook:   wh,
-		logger:    logger,
-		version:   version,
+		store:          store,
+		discovery:      disc,
+		scheduler:      sched,
+		webhook:        wh,
+		logger:         logger,
+		version:        version,
+		maxRequestBody: maxRequestBody,
 	}
 }
 
@@ -93,7 +97,7 @@ func (s *Server) Start() {
 
 	s.server = &http.Server{
 		Addr:         ":" + port,
-		Handler:      router,
+		Handler:      accessLogMiddleware(s.logger)(csrfMiddleware(s.logger)(router)),
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 60 * time.Second,
 		IdleTimeout:  120 * time.Second,
@@ -134,6 +138,7 @@ type RenovateJobInfo struct {
 	Platform         string                             `json:"platform,omitempty"`
 	PlatformEndpoint string                             `json:"platformEndpoint,omitempty"`
 	ExecutionOptions *api.RenovateExecutionOptions      `json:"executionOptions,omitempty"`
+	WebhookEnabled   bool                               `json:"webhookEnabled"`
 }
 
 func (s *Server) getVersion(w http.ResponseWriter, _ *http.Request) {
@@ -179,6 +184,7 @@ func (s *Server) getRenovateJobs(w http.ResponseWriter, r *http.Request) {
 			Platform:         platform,
 			PlatformEndpoint: endpoint,
 			ExecutionOptions: job.Status.ExecutionOptions,
+			WebhookEnabled:   job.Spec.Webhook != nil && job.Spec.Webhook.Enabled,
 		})
 	}
 
@@ -191,8 +197,13 @@ type jobActionRequest struct {
 }
 
 func (s *Server) runRenovateForProject(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, s.maxRequestBody)
 	var params jobActionRequest
 	if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
+		if isMaxBytesError(err) {
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "request body too large"})
+			return
+		}
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 		return
 	}
@@ -220,10 +231,15 @@ func (s *Server) runRenovateForProject(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) runRenovateForAllProjects(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, s.maxRequestBody)
 	var params struct {
 		RenovateJob string `json:"renovateJob"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
+		if isMaxBytesError(err) {
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "request body too large"})
+			return
+		}
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 		return
 	}
@@ -253,8 +269,13 @@ func (s *Server) runRenovateForAllProjects(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) cancelRenovateForProject(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, s.maxRequestBody)
 	var params jobActionRequest
 	if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
+		if isMaxBytesError(err) {
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "request body too large"})
+			return
+		}
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 		return
 	}
@@ -338,10 +359,15 @@ func (s *Server) getRenovateJobLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) runDiscovery(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, s.maxRequestBody)
 	var params struct {
 		RenovateJob string `json:"renovateJob"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
+		if isMaxBytesError(err) {
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "request body too large"})
+			return
+		}
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 		return
 	}
@@ -367,11 +393,17 @@ func (s *Server) runDiscovery(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) updateExecutionOptions(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, s.maxRequestBody)
 	var params struct {
-		RenovateJob string `json:"renovateJob"`
-		Debug       bool   `json:"debug"`
+		RenovateJob    string `json:"renovateJob"`
+		Debug          bool   `json:"debug"`
+		WebhookEnabled *bool  `json:"webhookEnabled,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
+		if isMaxBytesError(err) {
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "request body too large"})
+			return
+		}
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 		return
 	}
@@ -390,6 +422,19 @@ func (s *Server) updateExecutionOptions(w http.ResponseWriter, r *http.Request) 
 		s.logger.Error("failed to update execution options", "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to update"})
 		return
+	}
+
+	if params.WebhookEnabled != nil {
+		err = s.store.UpdateWebhookEnabled(
+			r.Context(),
+			statestore.RenovateJobIdentifier{Name: params.RenovateJob},
+			*params.WebhookEnabled,
+		)
+		if err != nil {
+			s.logger.Error("failed to update webhook_enabled", "error", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to update webhook_enabled"})
+			return
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"message": "execution options updated"})
@@ -438,4 +483,10 @@ func writeJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(data)
+}
+
+// isMaxBytesError checks if the error is due to exceeding the max request body size.
+func isMaxBytesError(err error) bool {
+	var maxBytesErr *http.MaxBytesError
+	return errors.As(err, &maxBytesErr)
 }

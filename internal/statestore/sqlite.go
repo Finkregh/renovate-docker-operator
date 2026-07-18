@@ -119,11 +119,12 @@ func (s *SQLiteStore) seedDefaultJob() error {
 	discoveryFilters := commaSepToJSON(os.Getenv("RENOVATEOP_DISCOVERY_FILTERS"))
 	discoverTopics := commaSepToJSON(os.Getenv("RENOVATEOP_DISCOVER_TOPICS"))
 	skipForks := boolToInt(os.Getenv("AUTODISCOVER_SKIP_FORKS"))
+	webhookEnabled := boolToIntDefault(os.Getenv("WEBHOOK_SERVER_ENABLED"), 1)
 
 	_, err := s.writeDB.ExecContext(ctx, `INSERT INTO renovate_jobs
-		(name, schedule, image, platform, endpoint, discovery_filters, discover_topics, skip_forks, parallelism)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		"default", schedule, image, platform, endpoint, discoveryFilters, discoverTopics, skipForks, parallelism,
+		(name, schedule, image, platform, endpoint, discovery_filters, discover_topics, skip_forks, parallelism, webhook_enabled)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"default", schedule, image, platform, endpoint, discoveryFilters, discoverTopics, skipForks, parallelism, webhookEnabled,
 	)
 	if err != nil {
 		return fmt.Errorf("inserting default job: %w", err)
@@ -511,16 +512,32 @@ func (s *SQLiteStore) UpdateExecutionOptions(ctx context.Context, job RenovateJo
 	return err
 }
 
+// UpdateWebhookEnabled toggles the webhook_enabled flag for a job.
+func (s *SQLiteStore) UpdateWebhookEnabled(ctx context.Context, job RenovateJobIdentifier, enabled bool) error {
+	v := 0
+	if enabled {
+		v = 1
+	}
+	_, err := s.writeDB.ExecContext(ctx, `UPDATE renovate_jobs SET webhook_enabled = ? WHERE name = ?`, v, job.Name)
+	return err
+}
+
 // CancelProjectJob cancels a running project job.
 func (s *SQLiteStore) CancelProjectJob(ctx context.Context, project string, job RenovateJobIdentifier) error {
-	// Get the container ID before updating status.
+	tx, err := s.writeDB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin cancel transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Read and write within the same transaction to avoid race conditions.
 	var containerID sql.NullString
-	_ = s.readDB.QueryRowContext(ctx,
+	_ = tx.QueryRowContext(ctx,
 		`SELECT current_container_id FROM projects WHERE job_name = ? AND full_name = ? AND status = 'running'`,
 		job.Name, project,
 	).Scan(&containerID)
 
-	res, err := s.writeDB.ExecContext(ctx,
+	res, err := tx.ExecContext(ctx,
 		`UPDATE projects SET status = ?, current_container_id = NULL WHERE job_name = ? AND full_name = ? AND status = 'running'`,
 		string(api.JobStatusCancelled), job.Name, project,
 	)
@@ -530,6 +547,10 @@ func (s *SQLiteStore) CancelProjectJob(ctx context.Context, project string, job 
 	affected, _ := res.RowsAffected()
 	if affected == 0 {
 		return ErrProjectNotFound
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit cancel transaction: %w", err)
 	}
 
 	if containerID.Valid && containerID.String != "" {
@@ -609,21 +630,25 @@ func buildRenovateJob(
 ) (*api.RenovateJob, error) {
 	var discoveryFilters []string
 	if err := json.Unmarshal([]byte(discoveryFiltersJSON), &discoveryFilters); err != nil {
+		slog.Warn("failed to unmarshal discovery_filters JSON", "job", name, "error", err)
 		discoveryFilters = nil
 	}
 
 	var discoverTopics []string
 	if err := json.Unmarshal([]byte(discoverTopicsJSON), &discoverTopics); err != nil {
+		slog.Warn("failed to unmarshal discover_topics JSON", "job", name, "error", err)
 		discoverTopics = nil
 	}
 
 	var extraEnv []api.EnvVar
 	if err := json.Unmarshal([]byte(extraEnvJSON), &extraEnv); err != nil {
+		slog.Warn("failed to unmarshal extra_env JSON", "job", name, "error", err)
 		extraEnv = nil
 	}
 
 	var allowedGroups []string
 	if err := json.Unmarshal([]byte(allowedGroupsJSON), &allowedGroups); err != nil {
+		slog.Warn("failed to unmarshal allowed_groups JSON", "job", name, "error", err)
 		allowedGroups = nil
 	}
 
@@ -872,6 +897,14 @@ func boolToInt(s string) int {
 		return 1
 	}
 	return 0
+}
+
+// boolToIntDefault parses a boolean string, returning defaultVal if the string is empty.
+func boolToIntDefault(s string, defaultVal int) int {
+	if strings.TrimSpace(s) == "" {
+		return defaultVal
+	}
+	return boolToInt(s)
 }
 
 func commaSepToJSON(s string) string {

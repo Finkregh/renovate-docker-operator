@@ -2,12 +2,27 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 )
+
+// envOrDefaultDuration parses a duration string env var or returns a default.
+func envOrDefaultDuration(key string, defaultValue time.Duration) time.Duration {
+	v := os.Getenv(key)
+	if v == "" {
+		return defaultValue
+	}
+	d, err := time.ParseDuration(strings.TrimSpace(v))
+	if err != nil {
+		return defaultValue
+	}
+	return d
+}
 
 // Config holds all operator configuration loaded from environment variables.
 type Config struct {
@@ -53,9 +68,17 @@ type Config struct {
 
 	// Logging
 	LogLevel string // RENOVATEOP_LOG_LEVEL (default: info)
+
+	// Security
+	MaxRequestBody int64 // RENOVATEOP_MAX_REQUEST_BODY (default: 2 MiB)
+
+	// Image Cache
+	ImageCacheTTL time.Duration // RENOVATEOP_IMAGE_CACHE_TTL (default: 24h, 0 disables)
 }
 
 // configValues stores a flat map of config values for GetValue lookups.
+// Safety: Load() is called exactly once in main() before any goroutines start,
+// so concurrent read access via GetValue() is safe without additional synchronization.
 var configValues map[string]string
 
 // Load reads configuration from environment variables and returns a Config struct.
@@ -98,9 +121,28 @@ func Load() (*Config, error) {
 	cfg.WebhookEnabled = envOrDefaultBool("WEBHOOK_SERVER_ENABLED", true)
 	cfg.SkipForks = envOrDefaultBool("AUTODISCOVER_SKIP_FORKS", false)
 
+	// Auto-generate session secret if not provided
+	if cfg.SessionSecret == "" {
+		secret := make([]byte, 32)
+		if _, err := rand.Read(secret); err != nil {
+			return nil, fmt.Errorf("failed to generate session secret: %w", err)
+		}
+		cfg.SessionSecret = hex.EncodeToString(secret)
+	}
+
+	// Parse security limits
+	cfg.MaxRequestBody = envOrDefaultInt64("RENOVATEOP_MAX_REQUEST_BODY", 2*1024*1024)
+
+	// Parse image cache TTL
+	cfg.ImageCacheTTL = envOrDefaultDuration("RENOVATEOP_IMAGE_CACHE_TTL", 24*time.Hour)
+
 	// Validate required fields
 	if cfg.PlatformEndpoint == "" {
 		return nil, fmt.Errorf("PLATFORM_ENDPOINT is required but not set")
+	}
+
+	if cfg.PlatformToken == "" {
+		return nil, fmt.Errorf("RENOVATEOP_TOKEN environment variable is required but not set")
 	}
 
 	// Populate the flat map for GetValue
@@ -130,6 +172,7 @@ func Load() (*Config, error) {
 		"RENOVATEOP_DISCOVER_TOPICS":   cfg.DiscoverTopics,
 		"AUTODISCOVER_SKIP_FORKS":      strconv.FormatBool(cfg.SkipForks),
 		"RENOVATEOP_LOG_LEVEL":         cfg.LogLevel,
+		"RENOVATEOP_MAX_REQUEST_BODY":  strconv.FormatInt(cfg.MaxRequestBody, 10),
 	}
 
 	return cfg, nil
@@ -159,6 +202,19 @@ func envOrDefaultInt(key string, defaultValue int) int {
 		return defaultValue
 	}
 	i, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil {
+		return defaultValue
+	}
+	return i
+}
+
+// envOrDefaultInt64 parses an int64 env var or returns a default.
+func envOrDefaultInt64(key string, defaultValue int64) int64 {
+	v := os.Getenv(key)
+	if v == "" {
+		return defaultValue
+	}
+	i, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
 	if err != nil {
 		return defaultValue
 	}
