@@ -76,5 +76,4 @@ jobs:
         latest
       checkout_ref: ${{ github.event.release.tag_name || github.ref }}
       fetch_tags: true
-    secrets:
-      PACKAGE_UPLOAD_TOKEN: ${{ secrets.PACKAGE_UPLOAD_TOKEN }}
+    secrets: inherit

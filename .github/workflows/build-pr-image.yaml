@@ -9,8 +9,7 @@ jobs:
     uses: ./.github/workflows/reusable-build-image.yaml
     with:
       tag_suffixes: "pr-${{ github.event.pull_request.number }}"
-    secrets:
-      PACKAGE_UPLOAD_TOKEN: ${{ secrets.PACKAGE_UPLOAD_TOKEN }}
+    secrets: inherit
 
   comment:
     name: Comment image tag on PR
