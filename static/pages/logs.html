@@ -168,15 +168,24 @@
         const namespace = params.get("namespace") || "";
         const renovate = params.get("renovate") || "";
         const project = params.get("project") || "";
+        const initialSource = params.get("source") || "stored";
 
+        const [activeTab, setActiveTab] = useState(initialSource);
         const [logs, setLogs] = useState(null);
         const [loading, setLoading] = useState(true);
         const [streamFinished, setStreamFinished] = useState(false);
+        const [streamPhase, setStreamPhase] = useState(null); // null | "loading" | "streaming"
         const [error, setError] = useState(null);
         const [version, setVersion] = useState(null);
         const [authInfo, setAuthInfo] = useState({ enabled: false });
         const [copied, setCopied] = useState(false);
         const [searchQuery, setSearchQuery] = useState("");
+        const [isProjectRunning, setIsProjectRunning] = useState(null);
+        const [isAtBottom, setIsAtBottom] = useState(true);
+
+        const logContainerRef = useRef(null);
+        const esRef = useRef(null);
+        const catchUpTimerRef = useRef(null);
 
         const BASE = window.__BASE_PATH__ || "";
         const withBase = (url) => (url.startsWith("/") ? BASE + url : url);
@@ -185,6 +194,37 @@
           return fetch(withBase(url), options);
         };
 
+        // Auto-scroll logic
+        const scrollToBottom = useCallback(() => {
+          if (logContainerRef.current) {
+            logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+          }
+        }, []);
+
+        const handleScroll = useCallback(() => {
+          if (!logContainerRef.current) return;
+          const { scrollTop, scrollHeight, clientHeight } = logContainerRef.current;
+          const atBottom = scrollHeight - scrollTop - clientHeight < 50;
+          setIsAtBottom(atBottom);
+        }, []);
+
+        // Update URL when tab changes
+        const switchTab = useCallback((newTab) => {
+          setActiveTab(newTab);
+          try {
+            const url = new URL(window.location.href);
+            url.searchParams.set("source", newTab);
+            history.replaceState(null, "", url.toString());
+          } catch {}
+          // Reset state for new stream
+          setLogs(null);
+          setLoading(true);
+          setStreamFinished(false);
+          setStreamPhase(null);
+          setError(null);
+          setIsAtBottom(true);
+        }, []);
+
         useEffect(() => {
           fetch(BASE + "/api/v1/version")
             .then((r) => (r.ok ? r.json() : null))
@@ -192,47 +232,133 @@
             .catch(() => {});
         }, []);
 
+        // Check project running status
         useEffect(() => {
-          if (!renovate || !namespace || !project) {
-            setError(
-              "Missing required query parameters: namespace, renovate, project.",
-            );
+          if (!renovate) return;
+          fetch(`${BASE}/api/v1/renovatejobs`)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((data) => {
+              if (!data) return;
+              const jobs = Array.isArray(data) ? data : data.jobs || [];
+              let running = false;
+              for (const job of jobs) {
+                const projects = job.projects || [];
+                for (const p of projects) {
+                  if (p.name === project && p.status === "running") {
+                    running = true;
+                  }
+                }
+              }
+              setIsProjectRunning(running);
+            })
+            .catch(() => setIsProjectRunning(false));
+        }, [renovate, project]);
+
+        // Main streaming effect
+        useEffect(() => {
+          if (!renovate || !project) {
+            setError("Missing required query parameters: renovate, project.");
             setLoading(false);
             return;
           }
 
+          // For stored mode, namespace is also needed
+          if (activeTab === "stored" && !namespace) {
+            setError("Missing required query parameter: namespace.");
+            setLoading(false);
+            return;
+          }
+
+          // Pre-flight check for live mode
+          if (activeTab === "live" && isProjectRunning === false) {
+            // Project is not running — fall back to stored
+            setError(null);
+            switchTab("stored");
+            return;
+          }
+
+          // Wait for running status check before opening live stream
+          if (activeTab === "live" && isProjectRunning === null) {
+            return;
+          }
+
           const entries = [];
-          const url = `${BASE}/api/v1/logs?namespace=${encodeURIComponent(namespace)}&renovate=${encodeURIComponent(renovate)}&project=${encodeURIComponent(project)}`;
+          let url;
+          if (activeTab === "live") {
+            url = `${BASE}/api/v1/logs/live?renovate=${encodeURIComponent(renovate)}&project=${encodeURIComponent(project)}`;
+            setStreamPhase("loading");
+          } else {
+            url = `${BASE}/api/v1/logs?namespace=${encodeURIComponent(namespace)}&renovate=${encodeURIComponent(renovate)}&project=${encodeURIComponent(project)}`;
+          }
+
           const es = new EventSource(url);
+          esRef.current = es;
+
+          // Catch-up detection for live mode: switch from "loading" to "streaming"
+          // after 500ms of no new entries (heuristic for initial burst end)
+          const resetCatchUpTimer = () => {
+            if (activeTab !== "live") return;
+            if (catchUpTimerRef.current) clearTimeout(catchUpTimerRef.current);
+            catchUpTimerRef.current = setTimeout(() => {
+              setStreamPhase("streaming");
+            }, 500);
+          };
 
           es.onmessage = (event) => {
             try {
               entries.push(JSON.parse(event.data));
               setLogs([...entries]);
               setLoading(false);
+              resetCatchUpTimer();
             } catch {}
           };
 
           es.addEventListener("done", () => {
             es.close();
+            if (catchUpTimerRef.current) clearTimeout(catchUpTimerRef.current);
             if (entries.length === 0) setLogs([]);
             setLoading(false);
             setStreamFinished(true);
+            setStreamPhase(null);
+            // If live stream ended, auto-switch to stored after 2s
+            if (activeTab === "live") {
+              setTimeout(() => switchTab("stored"), 2000);
+            }
           });
 
           es.onerror = () => {
             es.close();
-            if (entries.length === 0) {
-              setError(
-                "Failed to load logs. The job may have been cleaned up already.",
-              );
+            if (catchUpTimerRef.current) clearTimeout(catchUpTimerRef.current);
+            if (activeTab === "live") {
+              // Container finished — fall back to stored
+              if (entries.length === 0) {
+                setLogs([]);
+              }
+              setLoading(false);
+              setStreamFinished(true);
+              setStreamPhase(null);
+              setTimeout(() => switchTab("stored"), 2000);
+            } else {
+              if (entries.length === 0) {
+                setError("Failed to load logs. The job may have been cleaned up already.");
+              }
+              setLoading(false);
+              setStreamFinished(true);
             }
-            setLoading(false);
-            setStreamFinished(true);
           };
 
-          return () => es.close();
-        }, [namespace, renovate, project]);
+          return () => {
+            es.close();
+            if (catchUpTimerRef.current) clearTimeout(catchUpTimerRef.current);
+          };
+        }, [namespace, renovate, project, activeTab, isProjectRunning]);
+
+        // Auto-scroll when new logs arrive and user is at bottom
+        useEffect(() => {
+          if (isAtBottom && logs && logs.length > 0) {
+            scrollToBottom();
+          }
+        }, [logs, isAtBottom, scrollToBottom]);
 
         const errorCount = useMemo(
           () => (logs ? logs.filter((e) => e.level >= 50).length : null),
@@ -350,13 +476,55 @@
             </SiteHeader>
 
             <main className="flex-1 max-w-7xl mx-auto w-full px-3 sm:px-6 lg:px-8 pb-8">
+              {/* Tab bar */}
+              <div className="flex items-center gap-1 mb-4 border-b border-gray-200 dark:border-slate-700">
+                <button
+                  onClick={() => switchTab("stored")}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                    activeTab === "stored"
+                      ? "border-primary text-primary"
+                      : "border-transparent text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300"
+                  }`}
+                >
+                  Previous Run
+                </button>
+                <button
+                  onClick={() => isProjectRunning && switchTab("live")}
+                  disabled={!isProjectRunning}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
+                    activeTab === "live"
+                      ? "border-primary text-primary"
+                      : !isProjectRunning
+                        ? "border-transparent text-gray-300 dark:text-slate-600 cursor-not-allowed"
+                        : "border-transparent text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300"
+                  }`}
+                >
+                  Current Run (Live)
+                  {activeTab === "live" && !streamFinished && streamPhase === "streaming" && (
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-success"></span>
+                    </span>
+                  )}
+                </button>
+              </div>
+
               <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
                 <div className="shrink-0">
                   <div className="flex items-center gap-2">
                     <h1 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
                       Logs
                     </h1>
-                    {!loading && !streamFinished && (
+                    {!loading && !streamFinished && streamPhase === "loading" && (
+                      <span className="flex items-center gap-1.5 text-xs text-primary font-medium">
+                        <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                        </svg>
+                        Loading previous output…
+                      </span>
+                    )}
+                    {!loading && !streamFinished && (streamPhase === "streaming" || activeTab === "stored") && (
                       <span className="flex items-center gap-1.5 text-xs text-success font-medium">
                         <span className="relative flex h-2 w-2">
                           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
@@ -585,10 +753,27 @@
                 !error &&
                 filteredLogs &&
                 filteredLogs.length > 0 && (
-                  <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 overflow-hidden divide-y divide-gray-100 dark:divide-slate-700/50">
-                    {filteredLogs.map((entry, i) => (
-                      <LogRow key={i} entry={entry} searchQuery={searchQuery} />
-                    ))}
+                  <div className="relative">
+                    <div
+                      ref={logContainerRef}
+                      onScroll={handleScroll}
+                      className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 overflow-y-auto max-h-[70vh] divide-y divide-gray-100 dark:divide-slate-700/50"
+                    >
+                      {filteredLogs.map((entry, i) => (
+                        <LogRow key={i} entry={entry} searchQuery={searchQuery} />
+                      ))}
+                    </div>
+                    {!isAtBottom && (
+                      <button
+                        onClick={scrollToBottom}
+                        className="absolute bottom-4 right-4 bg-primary text-white px-3 py-1.5 rounded-full shadow-lg text-xs font-medium hover:bg-primary-hover transition-colors flex items-center gap-1"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                        </svg>
+                        Jump to bottom
+                      </button>
+                    )}
                   </div>
                 )}
             </main>
