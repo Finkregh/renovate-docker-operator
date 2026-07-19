@@ -262,13 +262,6 @@
             return;
           }
 
-          // For stored mode, namespace is also needed
-          if (activeTab === "stored" && !namespace) {
-            setError("Missing required query parameter: namespace.");
-            setLoading(false);
-            return;
-          }
-
           // Pre-flight check for live mode
           if (activeTab === "live" && isProjectRunning === false) {
             // Project is not running — fall back to stored

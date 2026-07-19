@@ -1076,7 +1076,7 @@ func (e *DockerExecutor) StreamContainerLogs(ctx context.Context, containerID st
 		if err != nil {
 			pw.CloseWithError(err)
 		} else {
-			pw.Close()
+			_ = pw.Close()
 		}
 	}()
 

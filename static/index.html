@@ -713,12 +713,18 @@
                       width="w-[100px]"
                     />
                     <a
-                      href={`${BASE}/logs?renovate=${encodeURIComponent(jobName)}&project=${encodeURIComponent(project.name)}`}
+                      href={`${BASE}/logs?renovate=${encodeURIComponent(jobName)}&project=${encodeURIComponent(project.name)}${project.status === "running" ? "&source=live" : ""}`}
                       target="_blank"
-                      className="bg-gray-600 hover:bg-gray-700 text-white px-3 py-1.5 rounded-lg font-semibold text-[0.813rem] shadow-sm hover:shadow-md transition-all inline-block min-w-[60px] text-center"
+                      className="relative bg-gray-600 hover:bg-gray-700 text-white px-3 py-1.5 rounded-lg font-semibold text-[0.813rem] shadow-sm hover:shadow-md transition-all inline-block min-w-[60px] text-center"
                       aria-label={`View logs for ${project.name}`}
                     >
                       Logs
+                      {project.status === "running" && (
+                        <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-success"></span>
+                        </span>
+                      )}
                     </a>
                   </div>
                 </td>
@@ -967,12 +973,18 @@
                     width="w-[110px]"
                   />
                   <a
-                    href={`${BASE}/logs?renovate=${encodeURIComponent(jobName)}&project=${encodeURIComponent(project.name)}`}
+                    href={`${BASE}/logs?renovate=${encodeURIComponent(jobName)}&project=${encodeURIComponent(project.name)}${project.status === "running" ? "&source=live" : ""}`}
                     target="_blank"
-                    className="bg-gray-600 hover:bg-gray-700 text-white px-3 py-1.5 rounded-lg font-semibold text-[0.813rem] shadow-sm hover:shadow-md transition-all inline-block w-[70px] text-center"
+                    className="relative bg-gray-600 hover:bg-gray-700 text-white px-3 py-1.5 rounded-lg font-semibold text-[0.813rem] shadow-sm hover:shadow-md transition-all inline-block w-[70px] text-center"
                     aria-label={`View logs for ${project.name}`}
                   >
                     Logs
+                    {project.status === "running" && (
+                      <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-success"></span>
+                      </span>
+                    )}
                   </a>
                   {(() => {
                     const dashboardUrl = buildDashboardUrl(
