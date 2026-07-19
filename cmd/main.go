@@ -99,7 +99,7 @@ func run() error {
 	sched.Start()
 
 	// 8. Start unified HTTP server (UI + webhook + health + API)
-	srv := server.New(store, disc, sched, logger, "0.1.0", cfg.MaxRequestBody)
+	srv := server.New(store, disc, sched, exec, logger, "0.1.0", cfg.MaxRequestBody)
 	srv.Start()
 
 	logger.Info("operator started — waiting for signals")

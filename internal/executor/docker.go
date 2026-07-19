@@ -1047,6 +1047,86 @@ func (e *DockerExecutor) GetRunningContainerID(project string) (string, bool) {
 	return cid, ok
 }
 
+// StreamContainerLogs returns a live stream of container logs with stdout and
+// stderr demultiplexed. Stderr lines that are plain text (not valid NDJSON) are
+// wrapped as JSON log entries before writing. The returned reader blocks until
+// the container exits or the context is cancelled.
+func (e *DockerExecutor) StreamContainerLogs(ctx context.Context, containerID string) (io.ReadCloser, error) {
+	reader, err := e.docker.ContainerLogs(ctx, containerID, container.LogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Follow:     true,
+		Timestamps: false,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	pr, pw := io.Pipe()
+
+	go func() {
+		defer func() { _ = reader.Close() }()
+
+		// stderrWriter wraps non-JSON stderr lines as NDJSON.
+		stderrWriter := &stderrJSONWrapper{w: pw}
+
+		// StdCopy processes frames sequentially: stdout frames write directly
+		// to pw, stderr frames go through stderrWriter. No concurrent writes.
+		_, err := stdcopy.StdCopy(pw, stderrWriter, reader)
+		if err != nil {
+			pw.CloseWithError(err)
+		} else {
+			pw.Close()
+		}
+	}()
+
+	return pr, nil
+}
+
+// stderrJSONWrapper is an io.Writer that ensures each line written is valid
+// NDJSON. If a line is already valid JSON it passes through unchanged.
+// Plain-text lines are wrapped as {"level":60,"msg":"[stderr] ...","time":"..."}.
+type stderrJSONWrapper struct {
+	w   io.Writer
+	buf []byte
+}
+
+func (s *stderrJSONWrapper) Write(p []byte) (int, error) {
+	s.buf = append(s.buf, p...)
+	for {
+		nl := bytes.IndexByte(s.buf, '\n')
+		if nl < 0 {
+			break
+		}
+		line := s.buf[:nl]
+		s.buf = s.buf[nl+1:]
+
+		trimmed := bytes.TrimSpace(line)
+		if len(trimmed) == 0 {
+			continue
+		}
+
+		if json.Valid(trimmed) {
+			// Already valid JSON — pass through.
+			if _, err := s.w.Write(append(trimmed, '\n')); err != nil {
+				return len(p), err
+			}
+		} else {
+			// Wrap plain text as JSON log entry.
+			entry := map[string]interface{}{
+				"level": 60,
+				"msg":   "[stderr] " + string(trimmed),
+				"time":  time.Now().UTC().Format(time.RFC3339Nano),
+			}
+			data, _ := json.Marshal(entry)
+			if _, err := s.w.Write(append(data, '\n')); err != nil {
+				return len(p), err
+			}
+		}
+	}
+	return len(p), nil
+}
+
 // StopContainer stops a specific container by project name.
 func (e *DockerExecutor) StopContainer(ctx context.Context, project string) error {
 	e.mu.Lock()

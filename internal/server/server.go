@@ -30,6 +30,7 @@ type Server struct {
 	store          statestore.RenovateJobManager
 	discovery      *discovery.Agent
 	scheduler      *scheduler.Scheduler
+	executor       *executor.DockerExecutor
 	webhook        *webhook.Handler
 	logger         *slog.Logger
 	server         *http.Server
@@ -48,6 +49,7 @@ func New(
 	store statestore.RenovateJobManager,
 	disc *discovery.Agent,
 	sched *scheduler.Scheduler,
+	exec *executor.DockerExecutor,
 	logger *slog.Logger,
 	version string,
 	maxRequestBody int64,
@@ -57,6 +59,7 @@ func New(
 		store:          store,
 		discovery:      disc,
 		scheduler:      sched,
+		executor:       exec,
 		webhook:        wh,
 		logger:         logger,
 		version:        version,
@@ -132,18 +135,18 @@ func (s *Server) healthHandler(w http.ResponseWriter, _ *http.Request) {
 
 // RenovateJobInfo is the JSON response for listing jobs.
 type RenovateJobInfo struct {
-	Name              string                             `json:"name"`
-	CronExpression    string                             `json:"cronExpression"`
-	NextSchedule      time.Time                          `json:"nextSchedule"`
-	Projects          []statestore.RenovateProjectStatus `json:"projects"`
-	Platform          string                             `json:"platform,omitempty"`
-	PlatformEndpoint  string                             `json:"platformEndpoint,omitempty"`
-	ExecutionOptions  *api.RenovateExecutionOptions      `json:"executionOptions,omitempty"`
-	DebugMode         *api.DebugModeInfo                 `json:"debugMode,omitempty"`
-	WebhookEnabled    bool                               `json:"webhookEnabled"`
-	DiscoveryStatus   string                             `json:"discoveryStatus"`
-	DiscoveryStarted  *time.Time                         `json:"discoveryStarted,omitempty"`
-	DiscoveryError    string                             `json:"discoveryError,omitempty"`
+	Name             string                             `json:"name"`
+	CronExpression   string                             `json:"cronExpression"`
+	NextSchedule     time.Time                          `json:"nextSchedule"`
+	Projects         []statestore.RenovateProjectStatus `json:"projects"`
+	Platform         string                             `json:"platform,omitempty"`
+	PlatformEndpoint string                             `json:"platformEndpoint,omitempty"`
+	ExecutionOptions *api.RenovateExecutionOptions      `json:"executionOptions,omitempty"`
+	DebugMode        *api.DebugModeInfo                 `json:"debugMode,omitempty"`
+	WebhookEnabled   bool                               `json:"webhookEnabled"`
+	DiscoveryStatus  string                             `json:"discoveryStatus"`
+	DiscoveryStarted *time.Time                         `json:"discoveryStarted,omitempty"`
+	DiscoveryError   string                             `json:"discoveryError,omitempty"`
 }
 
 // buildDebugModeInfo computes the effective debug mode state, considering
