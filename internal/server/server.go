@@ -19,6 +19,7 @@ import (
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/config"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/api"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/discovery"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/executor"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/scheduler"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/statestore"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/webhook"
@@ -131,15 +132,18 @@ func (s *Server) healthHandler(w http.ResponseWriter, _ *http.Request) {
 
 // RenovateJobInfo is the JSON response for listing jobs.
 type RenovateJobInfo struct {
-	Name             string                             `json:"name"`
-	CronExpression   string                             `json:"cronExpression"`
-	NextSchedule     time.Time                          `json:"nextSchedule"`
-	Projects         []statestore.RenovateProjectStatus `json:"projects"`
-	Platform         string                             `json:"platform,omitempty"`
-	PlatformEndpoint string                             `json:"platformEndpoint,omitempty"`
-	ExecutionOptions *api.RenovateExecutionOptions      `json:"executionOptions,omitempty"`
-	DebugMode        *api.DebugModeInfo                 `json:"debugMode,omitempty"`
-	WebhookEnabled   bool                               `json:"webhookEnabled"`
+	Name              string                             `json:"name"`
+	CronExpression    string                             `json:"cronExpression"`
+	NextSchedule      time.Time                          `json:"nextSchedule"`
+	Projects          []statestore.RenovateProjectStatus `json:"projects"`
+	Platform          string                             `json:"platform,omitempty"`
+	PlatformEndpoint  string                             `json:"platformEndpoint,omitempty"`
+	ExecutionOptions  *api.RenovateExecutionOptions      `json:"executionOptions,omitempty"`
+	DebugMode         *api.DebugModeInfo                 `json:"debugMode,omitempty"`
+	WebhookEnabled    bool                               `json:"webhookEnabled"`
+	DiscoveryStatus   string                             `json:"discoveryStatus"`
+	DiscoveryStarted  *time.Time                         `json:"discoveryStarted,omitempty"`
+	DiscoveryError    string                             `json:"discoveryError,omitempty"`
 }
 
 // buildDebugModeInfo computes the effective debug mode state, considering
@@ -206,6 +210,19 @@ func (s *Server) getRenovateJobs(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 
+		// Look up discovery status from state store
+		var discStatus, discError string
+		var discStarted *time.Time
+		ds, _ := s.store.GetDiscoveryStatus(r.Context(), job.Name)
+		if ds != nil {
+			discStatus = ds.Status
+			discStarted = ds.StartedAt
+			discError = ds.Error
+		}
+		if discStatus == "" {
+			discStatus = "idle"
+		}
+
 		result = append(result, RenovateJobInfo{
 			Name:             job.Name,
 			CronExpression:   job.Spec.Schedule,
@@ -216,6 +233,9 @@ func (s *Server) getRenovateJobs(w http.ResponseWriter, r *http.Request) {
 			ExecutionOptions: job.Status.ExecutionOptions,
 			DebugMode:        buildDebugModeInfo(job.Status.ExecutionOptions),
 			WebhookEnabled:   job.Spec.Webhook != nil && job.Spec.Webhook.Enabled,
+			DiscoveryStatus:  discStatus,
+			DiscoveryStarted: discStarted,
+			DiscoveryError:   discError,
 		})
 	}
 
@@ -414,13 +434,17 @@ func (s *Server) runDiscovery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := s.discovery.RunDiscovery(r.Context(), job); err != nil {
-		s.logger.Error("failed to run discovery", "job", params.RenovateJob, "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "discovery failed"})
+	if err := s.discovery.RunDiscoveryAsync(r.Context(), job); err != nil {
+		if errors.Is(err, executor.ErrDiscoveryAlreadyRunning) {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "discovery is already running"})
+			return
+		}
+		s.logger.Error("failed to start async discovery", "job", params.RenovateJob, "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to start discovery"})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"message": "discovery started"})
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "started"})
 }
 
 func (s *Server) updateExecutionOptions(w http.ResponseWriter, r *http.Request) {
