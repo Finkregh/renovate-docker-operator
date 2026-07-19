@@ -44,10 +44,6 @@ check: golangci-lint test-unit
 test-unit:
     go run gotest.tools/gotestsum@latest --format="testname" --hide-summary="skipped" --format-hide-empty-pkg --rerun-fails="0" -- -count=1 ./...
 
-# Execute the over-the-wire webhook signing-token integration test (see integration/README.md)
-test-integration:
-    go test -tags integration -count=1 -v ./integration/...
-
 # Execute golangci-lint
 golangci-lint:
     go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run --config=.golangci.yml '--timeout=1h' ./...
