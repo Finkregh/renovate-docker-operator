@@ -1,0 +1,37 @@
+name: Cleanup PR Image
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  cleanup:
+    name: Remove PR container image
+    runs-on: ubuntu-latest
+    container:
+      image: node:24-bookworm@sha256:5711a0d445a1af54af9589066c646df387d1831a608226f4cd694fc59e745059
+
+    steps:
+      - name: Delete PR image from registry
+        env:
+          TOKEN: ${{ secrets.PACKAGE_UPLOAD_TOKEN }}
+          SERVER: ${{ github.server_url }}
+          OWNER: ${{ github.repository_owner }}
+          PACKAGE_NAME: ${{ github.event.repository.name }}
+          PR_TAG: pr-${{ github.event.pull_request.number }}
+        run: |
+          echo "Deleting container image tag: ${PR_TAG}"
+
+          # Delete the package version (container tag)
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
+            -H "Authorization: token ${TOKEN}" \
+            "${SERVER}/api/v1/packages/${OWNER}/container/${PACKAGE_NAME}/${PR_TAG}")
+
+          if [ "$HTTP_CODE" = "204" ]; then
+            echo "✅ Successfully deleted image tag: ${PR_TAG}"
+          elif [ "$HTTP_CODE" = "404" ]; then
+            echo "⚠️ Image tag not found (already deleted or never published): ${PR_TAG}"
+          else
+            echo "❌ Failed to delete image tag: ${PR_TAG} (HTTP ${HTTP_CODE})"
+            exit 1
+          fi
