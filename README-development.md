@@ -52,15 +52,15 @@ just run
 
 ### Test Coverage
 
-| Package | Tests | Style |
-| --------- | ------- | ------- |
-| `internal/statestore` | SQLite operations, migrations, HMAC validation | Unit + integration |
-| `internal/webhook` | Forgejo event filtering, signature validation, scheduling | E2E with httptest |
-| `internal/parser` | Renovate log parsing, PR activity extraction | Unit (table-driven) |
-| `internal/server` | HTTP routing, API endpoints, CSRF middleware | E2E with httptest |
-| `internal/scheduler` | Cron scheduling, start/stop lifecycle | E2E with real cron |
-| `internal/executor` | Env var construction, name sanitization, Docker stream detection, image caching | Unit (table-driven) |
-| `internal/discovery` | Constructor safety, nil handling | Unit |
+| Package               | Tests                                                                           | Style               |
+| --------------------- | ------------------------------------------------------------------------------- | ------------------- |
+| `internal/statestore` | SQLite operations, migrations, HMAC validation                                  | Unit + integration  |
+| `internal/webhook`    | Forgejo event filtering, signature validation, scheduling                       | E2E with httptest   |
+| `internal/parser`     | Renovate log parsing, PR activity extraction                                    | Unit (table-driven) |
+| `internal/server`     | HTTP routing, API endpoints, CSRF middleware                                    | E2E with httptest   |
+| `internal/scheduler`  | Cron scheduling, start/stop lifecycle                                           | E2E with real cron  |
+| `internal/executor`   | Env var construction, name sanitization, Docker stream detection, image caching | Unit (table-driven) |
+| `internal/discovery`  | Constructor safety, nil handling                                                | Unit                |
 
 ### Verification Commands
 
@@ -130,14 +130,14 @@ Health is exposed via `/healthz` endpoint on the HTTP server. The executor verif
 
 ## Technology Stack
 
-| Concern | Library |
-| --------- | ---------- |
-| Container orchestration | `github.com/docker/docker` (Docker SDK) |
-| Scheduling | `github.com/robfig/cron/v3` |
-| HTTP routing | `github.com/gorilla/mux` |
-| State persistence | `modernc.org/sqlite` (pure-Go SQLite) |
-| Logging | `log/slog` (standard library) |
-| OIDC auth | Planned: `github.com/coreos/go-oidc` + `golang.org/x/oauth2` (not yet implemented) |
+| Concern                 | Library                                                                            |
+| ----------------------- | ---------------------------------------------------------------------------------- |
+| Container orchestration | `github.com/docker/docker` (Docker SDK)                                            |
+| Scheduling              | `github.com/robfig/cron/v3`                                                        |
+| HTTP routing            | `github.com/gorilla/mux`                                                           |
+| State persistence       | `modernc.org/sqlite` (pure-Go SQLite)                                              |
+| Logging                 | `log/slog` (standard library)                                                      |
+| OIDC auth               | Planned: `github.com/coreos/go-oidc` + `golang.org/x/oauth2` (not yet implemented) |
 
 ## Key Architectural Decisions
 

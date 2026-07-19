@@ -29,7 +29,6 @@ This project is a fork of [**mogenius/renovate-operator**](https://github.com/mo
 - **Access logging**: HTTP access log middleware with webhook auth enrichment.
 - **CSRF protection**: Origin-based CSRF middleware on state-changing requests.
 
-
 ## Quick Start
 
 ```bash
@@ -73,40 +72,38 @@ open http://localhost:8081
 
 See [`docker-compose.yml`](docker-compose.yml) for all available options and [`.env.example`](.env.example) for the full variable reference.
 
-
 ## Configuration
 
 All configuration is via environment variables:
 
-| Variable | Default | Description |
-| ---------- | --------- | ------------- |
-| `RENOVATE_*` |  | All envvars beginning with `RENOVATE_` are passed throug to spawned renovate containers |
-| `RENOVATE_PLATFORM` | `forgejo` | Platform type (`forgejo`, `gitea`, `github`, `gitlab`) — passed to containers |
-| `RENOVATE_TOKEN` | *(required)* | Platform access token for Renovate |
-| `ROP_PLATFORM_ENDPOINT` | *(required)* | Forgejo/Gitea instance URL |
-| `ROP_IMAGE` | `renovate/renovate:latest` | Docker image for Renovate |
-| `ROP_CRON_SCHEDULE` | `0 */4 * * *` | Cron expression for discovery+run cycles |
-| `ROP_PARALLELISM` | `2` | Max concurrent Renovate containers |
-| `ROP_SERVER_PORT` | `8081` | HTTP server port (UI + webhook + API) |
-| `ROP_SQLITE_PATH` | `/data/renovate.db` | Path to SQLite database |
-| `ROP_CACHE_VOLUME` | `renovate-cache` | Docker volume for Renovate cache |
-| `ROP_CONTAINER_NETWORK` | *(empty)* | Docker network for Renovate containers |
-| `ROP_IMAGE_PULL_POLICY` | `if-not-present` | When to pull image (`always`, `if-not-present`, `never`) |
-| `ROP_IMAGE_CACHE_TTL` | `24h` | Duration to cache the pulled image (0 disables) |
-| `ROP_JOB_TIMEOUT` | `1800` | Max runtime per Renovate container (seconds) |
-| `ROP_SHUTDOWN_GRACE_PERIOD` | `300` | Grace period for stopping containers on shutdown (seconds) |
-| `ROP_MAX_REQUEST_BODY` | `2097152` | Max webhook/API request body size in bytes (2 MiB) |
-| `ROP_LOG_LEVEL` | `info` | Log level (`debug`, `info`, `warn`, `error`) |
+| Variable                    | Default                    | Description                                                                             |
+| --------------------------- | -------------------------- | --------------------------------------------------------------------------------------- |
+| `RENOVATE_*`                |                            | All envvars beginning with `RENOVATE_` are passed throug to spawned renovate containers |
+| `RENOVATE_PLATFORM`         | `forgejo`                  | Platform type (`forgejo`, `gitea`, `github`, `gitlab`) — passed to containers           |
+| `RENOVATE_TOKEN`            | _(required)_               | Platform access token for Renovate                                                      |
+| `ROP_PLATFORM_ENDPOINT`     | _(required)_               | Forgejo/Gitea instance URL                                                              |
+| `ROP_IMAGE`                 | `renovate/renovate:latest` | Docker image for Renovate                                                               |
+| `ROP_CRON_SCHEDULE`         | `0 */4 * * *`              | Cron expression for discovery+run cycles                                                |
+| `ROP_PARALLELISM`           | `2`                        | Max concurrent Renovate containers                                                      |
+| `ROP_SERVER_PORT`           | `8081`                     | HTTP server port (UI + webhook + API)                                                   |
+| `ROP_SQLITE_PATH`           | `/data/renovate.db`        | Path to SQLite database                                                                 |
+| `ROP_CACHE_VOLUME`          | `renovate-cache`           | Docker volume for Renovate cache                                                        |
+| `ROP_CONTAINER_NETWORK`     | _(empty)_                  | Docker network for Renovate containers                                                  |
+| `ROP_IMAGE_PULL_POLICY`     | `if-not-present`           | When to pull image (`always`, `if-not-present`, `never`)                                |
+| `ROP_IMAGE_CACHE_TTL`       | `24h`                      | Duration to cache the pulled image (0 disables)                                         |
+| `ROP_JOB_TIMEOUT`           | `1800`                     | Max runtime per Renovate container (seconds)                                            |
+| `ROP_SHUTDOWN_GRACE_PERIOD` | `300`                      | Grace period for stopping containers on shutdown (seconds)                              |
+| `ROP_MAX_REQUEST_BODY`      | `2097152`                  | Max webhook/API request body size in bytes (2 MiB)                                      |
+| `ROP_LOG_LEVEL`             | `info`                     | Log level (`debug`, `info`, `warn`, `error`)                                            |
 
 Any environment variable prefixed `RENOVATE_*` on the operator process is passed through 1:1 to spawned Renovate containers.
 
 ### Webhook Configuration
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `ROP_WEBHOOK_ENABLED` | `true` | Enable webhook endpoint |
-| `ROP_WEBHOOK_SECRET` | *(auto-generated)* | HMAC secret for webhook validation, needs to be set in providers config (optional — auto-generated on first startup, comma-separated for rotation) |
-
+| Variable              | Default            | Description                                                                                                                                        |
+| --------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ROP_WEBHOOK_ENABLED` | `true`             | Enable webhook endpoint                                                                                                                            |
+| `ROP_WEBHOOK_SECRET`  | _(auto-generated)_ | HMAC secret for webhook validation, needs to be set in providers config (optional — auto-generated on first startup, comma-separated for rotation) |
 
 Configure your Forgejo instance to send webhooks to:
 
@@ -155,48 +152,46 @@ When `ROP_WEBHOOK_SECRET` is set, it takes precedence over the auto-generated va
 
 OIDC authentication is not yet implemented but is planned. The following environment variables will be supported:
 
-| Variable | Default | Description |
-| ---------- | --------- | ------------- |
-| `ROP_OIDC_ISSUER_URL` | *(empty)* | OIDC provider URL (leave empty for no-auth) |
-| `ROP_OIDC_CLIENT_ID` | *(empty)* | OAuth2 client ID |
-| `ROP_OIDC_CLIENT_SECRET` | *(empty)* | OAuth2 client secret |
-| `ROP_OIDC_REDIRECT_URL` | *(empty)* | OAuth2 redirect URL |
-| `ROP_SESSION_SECRET` | *(auto-generated)* | AES key for session cookies |
+| Variable                 | Default            | Description                                 |
+| ------------------------ | ------------------ | ------------------------------------------- |
+| `ROP_OIDC_ISSUER_URL`    | _(empty)_          | OIDC provider URL (leave empty for no-auth) |
+| `ROP_OIDC_CLIENT_ID`     | _(empty)_          | OAuth2 client ID                            |
+| `ROP_OIDC_CLIENT_SECRET` | _(empty)_          | OAuth2 client secret                        |
+| `ROP_OIDC_REDIRECT_URL`  | _(empty)_          | OAuth2 redirect URL                         |
+| `ROP_SESSION_SECRET`     | _(auto-generated)_ | AES key for session cookies                 |
 
 **Tip**: When implemented, you'll be able to use Forgejo itself as your OIDC provider! Forgejo 1.22+ has built-in OAuth2 provider support.
 
 ### Scheduling
 
-| Variable | Default | Description |
-| ---------- | --------- | ------------- |
-| `ROP_CRON_SCHEDULE` | `0 */4 * * *` | Cron expression for discovery+run cycles |
-| `ROP_CRON_SKIP_DISCOVERY` | `false` | Skip discovery on cron (only run known projects) |
+| Variable                  | Default       | Description                                      |
+| ------------------------- | ------------- | ------------------------------------------------ |
+| `ROP_CRON_SCHEDULE`       | `0 */4 * * *` | Cron expression for discovery+run cycles         |
+| `ROP_CRON_SKIP_DISCOVERY` | `false`       | Skip discovery on cron (only run known projects) |
 
 ### Discovery Filters
 
-| Variable | Default | Description |
-| ---------- | --------- | ------------- |
-| `ROP_DISCOVERY_FILTERS` | *(empty)* | Comma-separated repo patterns (e.g., `org/*,user/repo-*`) |
-| `ROP_DISCOVER_TOPICS` | *(empty)* | Comma-separated topics to filter by |
-| `ROP_SKIP_FORKS` | `false` | Skip forked repositories |
-
+| Variable                | Default   | Description                                               |
+| ----------------------- | --------- | --------------------------------------------------------- |
+| `ROP_DISCOVERY_FILTERS` | _(empty)_ | Comma-separated repo patterns (e.g., `org/*,user/repo-*`) |
+| `ROP_DISCOVER_TOPICS`   | _(empty)_ | Comma-separated topics to filter by                       |
+| `ROP_SKIP_FORKS`        | `false`   | Skip forked repositories                                  |
 
 ## API Endpoints
 
-| Method | Path | Description |
-| -------- | ------ | ------------- |
-| `GET` | `/healthz` | Health check |
-| `GET` | `/api/v1/version` | Server version |
-| `GET` | `/api/v1/renovatejobs` | List all jobs with project statuses |
-| `POST` | `/api/v1/renovate` | Trigger Renovate for a project |
-| `POST` | `/api/v1/renovate/all` | Trigger all projects |
-| `POST` | `/api/v1/renovate/cancel` | Cancel a running project |
-| `GET` | `/api/v1/logs?renovate=X&project=Y` | Stream logs (SSE) |
-| `POST` | `/api/v1/discovery/start` | Trigger discovery |
-| `POST` | `/api/v1/executionOptions` | Update debug mode |
-| `POST` | `/webhook/v1/forgejo?job=X` | Forgejo webhook receiver |
-| `POST` | `/webhook/v1/schedule?project=X&job=Y` | Manual schedule trigger |
-
+| Method | Path                                   | Description                         |
+| ------ | -------------------------------------- | ----------------------------------- |
+| `GET`  | `/healthz`                             | Health check                        |
+| `GET`  | `/api/v1/version`                      | Server version                      |
+| `GET`  | `/api/v1/renovatejobs`                 | List all jobs with project statuses |
+| `POST` | `/api/v1/renovate`                     | Trigger Renovate for a project      |
+| `POST` | `/api/v1/renovate/all`                 | Trigger all projects                |
+| `POST` | `/api/v1/renovate/cancel`              | Cancel a running project            |
+| `GET`  | `/api/v1/logs?renovate=X&project=Y`    | Stream logs (SSE)                   |
+| `POST` | `/api/v1/discovery/start`              | Trigger discovery                   |
+| `POST` | `/api/v1/executionOptions`             | Update debug mode                   |
+| `POST` | `/webhook/v1/forgejo?job=X`            | Forgejo webhook receiver            |
+| `POST` | `/webhook/v1/schedule?project=X&job=Y` | Manual schedule trigger             |
 
 ## Architecture
 
@@ -229,30 +224,27 @@ OIDC authentication is not yet implemented but is planned. The following environ
 └─────────────────────────────────────────┘
 ```
 
-
 ## Development
 
 For development documentation — project structure, coding conventions, architectural decisions, and build/test instructions — see **[README-development.md](README-development.md)**.
 
 ## Differences from Upstream
 
-
-| Aspect | [mogenius/renovate-operator](https://github.com/mogenius/renovate-operator) | renovate-docker-operator |
-| -------- | ----------------------------------------------------------------------------- | -------------------------- |
-| Runtime | Kubernetes (CRDs, controller-runtime) | Docker (socket API) |
-| State store | Kubernetes CRDs + etcd | SQLite (WAL mode) |
-| Container orchestration | Kubernetes Jobs | Docker containers |
-| Configuration | CRDs + ConfigMaps | Environment variables |
-| Image size | ~50 MB (requires K8s cluster) | ~20 MB standalone binary |
-| Dependencies | controller-runtime, client-go | Docker SDK, modernc.org/sqlite |
-| Auth | OIDC + GitHub OAuth | Planned (OIDC + no-auth; not yet implemented) |
-| Platforms | Forgejo, Gitea, GitHub, GitLab | Same |
-| Env var prefix | Mixed | `ROP_*` (operator) / `RENOVATE_*` (pass-through) |
-| Renovate features | Priority queue, parallelism, webhooks, UI | Same |
-| Deployment | Helm chart, K8s cluster | docker-compose or bare binary |
+| Aspect                  | [mogenius/renovate-operator](https://github.com/mogenius/renovate-operator) | renovate-docker-operator                         |
+| ----------------------- | --------------------------------------------------------------------------- | ------------------------------------------------ |
+| Runtime                 | Kubernetes (CRDs, controller-runtime)                                       | Docker (socket API)                              |
+| State store             | Kubernetes CRDs + etcd                                                      | SQLite (WAL mode)                                |
+| Container orchestration | Kubernetes Jobs                                                             | Docker containers                                |
+| Configuration           | CRDs + ConfigMaps                                                           | Environment variables                            |
+| Image size              | ~50 MB (requires K8s cluster)                                               | ~20 MB standalone binary                         |
+| Dependencies            | controller-runtime, client-go                                               | Docker SDK, modernc.org/sqlite                   |
+| Auth                    | OIDC + GitHub OAuth                                                         | Planned (OIDC + no-auth; not yet implemented)    |
+| Platforms               | Forgejo, Gitea, GitHub, GitLab                                              | Same                                             |
+| Env var prefix          | Mixed                                                                       | `ROP_*` (operator) / `RENOVATE_*` (pass-through) |
+| Renovate features       | Priority queue, parallelism, webhooks, UI                                   | Same                                             |
+| Deployment              | Helm chart, K8s cluster                                                     | docker-compose or bare binary                    |
 
 We share the same Forgejo webhook logic, discovery agent, and UI patterns as upstream. This means improvements from [mogenius/renovate-operator](https://github.com/mogenius/renovate-operator) can be cherry-picked into this project when relevant.
-
 
 ## Related Projects
 
