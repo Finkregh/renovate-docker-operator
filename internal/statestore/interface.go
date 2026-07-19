@@ -54,6 +54,13 @@ type RenovateJobManager interface {
 	// CancelProjectJob stops the running Docker container for the given project and
 	// transitions its status to cancelled, freeing the slot for the next dispatch.
 	CancelProjectJob(ctx context.Context, project string, job RenovateJobIdentifier) error
+	// SetDiscoveryStatus persists the current discovery status for a job.
+	SetDiscoveryStatus(ctx context.Context, jobName, status string, startedAt *time.Time, completedAt *time.Time, errMsg string) error
+	// GetDiscoveryStatus retrieves the persisted discovery status for a job.
+	GetDiscoveryStatus(ctx context.Context, jobName string) (*DiscoveryStatus, error)
+	// ResetOrphanedDiscoveryStatus resets any discovery status stuck in "running"
+	// back to "idle" (called on startup when no goroutine manages the container).
+	ResetOrphanedDiscoveryStatus(ctx context.Context) error
 }
 
 // ErrProjectNotFound is returned when a project does not exist in a RenovateJob.
@@ -91,4 +98,12 @@ type RenovateStatusUpdate struct {
 	RenovateResultStatus *string
 	PRActivity           *api.PRActivity
 	LogIssues            *api.LogIssues
+}
+
+// DiscoveryStatus represents the persisted status of a discovery run.
+type DiscoveryStatus struct {
+	Status      string     `json:"status"` // idle, running, completed, failed
+	StartedAt   *time.Time `json:"startedAt,omitempty"`
+	CompletedAt *time.Time `json:"completedAt,omitempty"`
+	Error       string     `json:"error,omitempty"`
 }

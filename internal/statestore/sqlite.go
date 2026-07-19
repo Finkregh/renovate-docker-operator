@@ -84,6 +84,11 @@ func New(dbPath string, logger *slog.Logger) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("ensure webhook secret: %w", err)
 	}
 
+	// Reset any discovery status stuck in "running" from a previous crash.
+	if err := s.ResetOrphanedDiscoveryStatus(context.Background()); err != nil {
+		logger.Warn("failed to reset orphaned discovery status", "error", err)
+	}
+
 	return s, nil
 }
 
@@ -618,6 +623,78 @@ func (s *SQLiteStore) CancelProjectJob(ctx context.Context, project string, job 
 
 	if containerID.Valid && containerID.String != "" {
 		s.logger.Info("project cancelled, container should be stopped", "project", project, "containerID", containerID.String)
+	}
+	return nil
+}
+
+// SetDiscoveryStatus persists the discovery status for a job.
+func (s *SQLiteStore) SetDiscoveryStatus(ctx context.Context, jobName, status string, startedAt *time.Time, completedAt *time.Time, errMsg string) error {
+	var startedStr, completedStr sql.NullString
+	if startedAt != nil {
+		startedStr = sql.NullString{String: startedAt.UTC().Format(time.RFC3339), Valid: true}
+	}
+	if completedAt != nil {
+		completedStr = sql.NullString{String: completedAt.UTC().Format(time.RFC3339), Valid: true}
+	}
+
+	_, err := s.writeDB.ExecContext(ctx,
+		`INSERT INTO discovery_status (job_name, status, started_at, completed_at, error_message)
+		 VALUES (?, ?, ?, ?, ?)
+		 ON CONFLICT(job_name) DO UPDATE SET
+		   status = excluded.status,
+		   started_at = excluded.started_at,
+		   completed_at = excluded.completed_at,
+		   error_message = excluded.error_message`,
+		jobName, status, startedStr, completedStr, errMsg,
+	)
+	if err != nil {
+		return fmt.Errorf("set discovery status: %w", err)
+	}
+	return nil
+}
+
+// GetDiscoveryStatus retrieves the persisted discovery status for a job.
+// Returns nil if no status record exists (treated as "idle" by callers).
+func (s *SQLiteStore) GetDiscoveryStatus(ctx context.Context, jobName string) (*DiscoveryStatus, error) {
+	var status string
+	var startedAt, completedAt sql.NullString
+	var errMsg sql.NullString
+
+	err := s.readDB.QueryRowContext(ctx,
+		`SELECT status, started_at, completed_at, error_message FROM discovery_status WHERE job_name = ?`,
+		jobName,
+	).Scan(&status, &startedAt, &completedAt, &errMsg)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get discovery status: %w", err)
+	}
+
+	ds := &DiscoveryStatus{Status: status}
+	if startedAt.Valid {
+		t, _ := time.Parse(time.RFC3339, startedAt.String)
+		ds.StartedAt = &t
+	}
+	if completedAt.Valid {
+		t, _ := time.Parse(time.RFC3339, completedAt.String)
+		ds.CompletedAt = &t
+	}
+	if errMsg.Valid {
+		ds.Error = errMsg.String
+	}
+	return ds, nil
+}
+
+// ResetOrphanedDiscoveryStatus resets any discovery status stuck in "running"
+// back to "idle". Called on startup to handle the case where the server crashed
+// during an active discovery run.
+func (s *SQLiteStore) ResetOrphanedDiscoveryStatus(ctx context.Context) error {
+	_, err := s.writeDB.ExecContext(ctx,
+		`UPDATE discovery_status SET status = 'idle', error_message = 'reset: server restarted during discovery' WHERE status = 'running'`,
+	)
+	if err != nil {
+		return fmt.Errorf("reset orphaned discovery status: %w", err)
 	}
 	return nil
 }

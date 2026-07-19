@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/api"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/statestore"
@@ -415,6 +416,15 @@ func (m *mockStore) UpdateWebhookEnabled(context.Context, statestore.RenovateJob
 	return nil
 }
 func (m *mockStore) CancelProjectJob(context.Context, string, statestore.RenovateJobIdentifier) error {
+	return nil
+}
+func (m *mockStore) SetDiscoveryStatus(context.Context, string, string, *time.Time, *time.Time, string) error {
+	return nil
+}
+func (m *mockStore) GetDiscoveryStatus(context.Context, string) (*statestore.DiscoveryStatus, error) {
+	return nil, nil
+}
+func (m *mockStore) ResetOrphanedDiscoveryStatus(context.Context) error {
 	return nil
 }
 
