@@ -83,6 +83,11 @@ func NewHandler(store statestore.RenovateJobManager, logger *slog.Logger, maxReq
 }
 
 // HandleForgejo processes a Forgejo webhook POST request.
+// HandleForgejo processes incoming Forgejo webhook events.
+// NOTE: This handler schedules individual projects for Renovate runs —
+// it does NOT trigger discovery. If a future "new repo created" webhook
+// should trigger discovery, use discovery.Agent.RunDiscoveryAsync to avoid
+// blocking the webhook response.
 func (h *Handler) HandleForgejo(w http.ResponseWriter, r *http.Request) {
 	event := r.Header.Get("X-Forgejo-Event")
 	if event == "" {

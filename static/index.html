@@ -1070,6 +1070,7 @@
         const nextToastIdRef = useRef(0);
         const hasLoadedOnce = useRef(false);
         const lastRawRef = useRef(null);
+        const prevDiscoveryStatusRef = useRef({});
         const [authInfo, setAuthInfo] = useState({ enabled: false });
         const STAT_FILTER_LABELS = {
           failed: "Failed",
@@ -1448,6 +1449,15 @@
                   project.cancelling = false;
                 });
               }
+
+              // Detect discovery status transitions
+              const prevStatus = prevDiscoveryStatusRef.current[job.name];
+              if (prevStatus === "running" && job.discoveryStatus === "completed") {
+                addToast("success", "Discovery Completed", `Discovery for ${job.name} finished successfully`);
+              } else if (prevStatus === "running" && job.discoveryStatus === "failed") {
+                addToast("error", "Discovery Failed", job.discoveryError || "Discovery failed with an unknown error");
+              }
+              prevDiscoveryStatusRef.current[job.name] = job.discoveryStatus;
             }
 
             hasLoadedOnce.current = true;
@@ -1485,6 +1495,12 @@
                 "success",
                 "Discovery Started",
                 `Discovery job for ${job.name} has been triggered`,
+              );
+            } else if (response.status === 409) {
+              addToast(
+                "info",
+                "Discovery Already Running",
+                `Discovery for ${job.name} is already in progress`,
               );
             } else {
               const errorText = await response.text();
@@ -2109,6 +2125,11 @@
                               onClick={() => runDiscovery(job)}
                               disabled={job.discoveryRunning}
                               className="bg-primary hover:bg-primary-hover disabled:opacity-60 disabled:cursor-not-allowed text-white px-3 py-2 sm:px-4 sm:py-2 rounded-lg font-semibold text-xs sm:text-sm shadow-sm hover:shadow-md active:scale-98 transition-all flex items-center justify-center gap-2"
+                              title={
+                                job.discoveryRunning
+                                  ? "Discovery is already in progress"
+                                  : `Run discovery for ${job.name}`
+                              }
                               aria-label={
                                 job.discoveryRunning
                                   ? "Discovery running"
