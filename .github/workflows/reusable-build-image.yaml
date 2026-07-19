@@ -1,0 +1,106 @@
+name: Build & Push Container Image
+
+on:
+  workflow_call:
+    inputs:
+      tag_suffixes:
+        description: "Newline-separated tag suffixes (e.g. 'v1.0.0' or 'pr-42'). Each becomes {registry}/{repo}:{suffix}"
+        required: true
+        type: string
+      checkout_ref:
+        description: "Git ref to checkout (default: triggering ref)"
+        required: false
+        type: string
+        default: ""
+      fetch_tags:
+        description: "Fetch git tags on checkout"
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      PACKAGE_UPLOAD_TOKEN:
+        required: true
+
+jobs:
+  build-container:
+    name: Build & push container image
+    runs-on: ubuntu-latest
+    env:
+      DOCKER_HOST: tcp://docker_dind:2375
+    container:
+      image: node:24-bookworm@sha256:8530f76a96d88820d288761f022e318970dda93d01536919fbc16076b7983e63
+      options: >-
+        --privileged
+      env:
+        DOCKER_HOST: tcp://docker_dind:2375
+
+    steps:
+      - name: Get server domain
+        id: server_domain
+        shell: bash
+        run: |
+          echo "server_domain=$(echo '${{ github.api_url }}' | awk -F'[/:]' '{print $4}')" >> "$GITHUB_OUTPUT"
+
+      - name: Compute image tags
+        id: tags
+        shell: bash
+        run: |
+          REGISTRY="${{ steps.server_domain.outputs.server_domain }}"
+          REPO="${{ github.repository }}"
+          SUFFIXES="${{ inputs.tag_suffixes }}"
+
+          TAGS=""
+          while IFS= read -r suffix; do
+            [ -z "$suffix" ] && continue
+            if [ -n "$TAGS" ]; then
+              TAGS="${TAGS}
+          ${REGISTRY}/${REPO}:${suffix}"
+            else
+              TAGS="${REGISTRY}/${REPO}:${suffix}"
+            fi
+          done <<< "$SUFFIXES"
+
+          # Use delimiter for multiline output
+          echo "tags<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$TAGS" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        uses: https://code.forgejo.org/actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-tags: ${{ inputs.fetch_tags }}
+          fetch-depth: ${{ inputs.fetch_tags && '0' || '1' }}
+          ref: ${{ inputs.checkout_ref || github.ref }}
+
+      - name: Install Docker
+        run: |
+          apt-get update
+          apt-get install -y ca-certificates curl gnupg
+          install -m 0755 -d /etc/apt/keyrings
+          curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+          chmod a+r /etc/apt/keyrings/docker.asc
+          echo \
+            "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian \
+            $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+            tee /etc/apt/sources.list.d/docker.list > /dev/null
+          apt-get update
+          apt-get install -y docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+      - name: Setup Docker Buildx
+        uses: https://github.com/docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+
+      - name: Login to Container Registry
+        uses: https://github.com/docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
+        with:
+          registry: ${{ steps.server_domain.outputs.server_domain }}
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.PACKAGE_UPLOAD_TOKEN }}
+
+      - name: Build and Push
+        uses: https://github.com/docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
