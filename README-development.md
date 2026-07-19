@@ -17,11 +17,15 @@ internal/
 ├── executor/              # Docker container lifecycle (create, dispatch, events, cleanup)
 ├── parser/                # Renovate JSON log parser (PR activity, warnings, errors)
 ├── scheduler/             # Cron scheduling wrapper (robfig/cron)
-├── server/                # HTTP server (UI, API, webhook routing, OIDC auth)
+├── server/                # HTTP server (UI, API, webhook routing, middleware)
 ├── statestore/            # SQLite state store (WAL mode) + RenovateJobManager interface
 └── webhook/               # Forgejo webhook handler (push, PR, issue events)
-static/                    # Frontend assets (CSS, JS, React components)
-integration/               # Integration tests (webhook signing, over-the-wire)
+static/                    # Frontend assets (HTML, CSS, JS, React components)
+├── assets/                # Static images/icons
+├── components/            # React components (SiteHeader, Footer, StatBadge, ThemeToggle)
+├── css/                   # Stylesheets
+├── js/                    # Downloaded JS deps (Tailwind, Babel, React bundle)
+└── pages/                 # Additional HTML pages (logs)
 ```
 
 ## Building & Testing
@@ -36,16 +40,13 @@ just test-unit
 # Run tests with race detection (quick iteration)
 go test -count=1 -race ./...
 
-# Run integration tests (webhook signing, over-the-wire)
-just test-integration
-
 # Lint + test in one command
 just check
 
 # Run locally (requires Docker and ROP_PLATFORM_ENDPOINT)
 export ROP_PLATFORM_ENDPOINT="https://git.example.com"
-export ROP_TOKEN="your-token"
 export ROP_SQLITE_PATH="./test.db"
+export RENOVATE_TOKEN="your-token"
 just run
 ```
 
@@ -56,17 +57,15 @@ just run
 | `internal/statestore` | SQLite operations, migrations, HMAC validation | Unit + integration |
 | `internal/webhook` | Forgejo event filtering, signature validation, scheduling | E2E with httptest |
 | `internal/parser` | Renovate log parsing, PR activity extraction | Unit (table-driven) |
-| `internal/server` | HTTP routing, API endpoints | E2E with httptest |
+| `internal/server` | HTTP routing, API endpoints, CSRF middleware | E2E with httptest |
 | `internal/scheduler` | Cron scheduling, start/stop lifecycle | E2E with real cron |
-| `internal/executor` | Env var construction, name sanitization, Docker stream detection | Unit (table-driven) |
+| `internal/executor` | Env var construction, name sanitization, Docker stream detection, image caching | Unit (table-driven) |
 | `internal/discovery` | Constructor safety, nil handling | Unit |
-| `integration/` | Webhook signing token validation over HTTP | Integration |
 
 ### Verification Commands
 
 - `just build` — compile the project
 - `just test-unit` — run all unit/E2E tests via gotestsum
-- `just test-integration` — run integration tests (requires running instance)
 - `just check` — lint + test in one command
 - `just golangci-lint` — run linter only
 
@@ -94,8 +93,9 @@ All configuration is environment-variable driven via the singleton in `config/`.
 
 - Declare new config values in the config schema (with `Optional`/`Required` and defaults)
 - Access config values via `config.GetValue()` — never read `os.Getenv` directly elsewhere
-- The operator reads `ROP_TOKEN` and passes it to containers as `RENOVATE_TOKEN`
+- The operator reads `RENOVATE_TOKEN` and passes it to containers as `RENOVATE_TOKEN`
 - All `RENOVATE_*` env vars from the operator process are passed through to containers (always override)
+- Env var prefix convention: `ROP_*` for operator config, `RENOVATE_*` for container pass-through
 
 ### 4. Error Handling
 
@@ -137,20 +137,22 @@ Health is exposed via `/healthz` endpoint on the HTTP server. The executor verif
 | HTTP routing | `github.com/gorilla/mux` |
 | State persistence | `modernc.org/sqlite` (pure-Go SQLite) |
 | Logging | `log/slog` (standard library) |
-| OIDC auth | `github.com/coreos/go-oidc` + `golang.org/x/oauth2` |
+| OIDC auth | Planned: `github.com/coreos/go-oidc` + `golang.org/x/oauth2` (not yet implemented) |
 
 ## Key Architectural Decisions
 
 - **Single-process design** — one binary runs the scheduler, executor, webhook server, and UI. No leader election needed (unlike the upstream K8s operator).
-- **Platform credentials** are passed via environment variables (`ROP_TOKEN`) — the operator injects them into containers as `RENOVATE_TOKEN`.
+- **Platform credentials** are passed via environment variables (`RENOVATE_TOKEN`) — the operator injects them into containers as `RENOVATE_TOKEN`.
 - **Webhook server** handles Forgejo events at `/webhook/v1/forgejo?job=<name>`. Events are validated (HMAC-SHA256 or Standard Webhooks signatures), filtered (branch, event type), and then schedule projects for immediate execution.
-- **Webhook sync is stateless** — after each discovery run, `statestore.SyncWebhooks` ensures the operator's webhook exists on every discovered project and removes it from repos that were removed during reconciliation. Hooks are identified by their delivery URL. Sync failures are logged, never block discovery (fail open).
+- **Webhook secret management** — on first startup, a random 40-character HMAC secret is auto-generated and stored in the `settings` table. The `ROP_WEBHOOK_SECRET` env var overrides the stored value.
 - **Discovery uses Renovate itself** — a discovery container runs Renovate with `autodiscover: true` and writes discovered repos to a JSON file, which is read from the container's stdout.
 - **Executor dispatch loop** — polls every 10 seconds, collects all `scheduled` projects sorted by priority (descending) then oldest-wait, and dispatches Docker containers up to the parallelism limit. Container exit events trigger immediate re-dispatch.
-- **Global parallelism limit** — `ROP_GLOBAL_PARALLELISM` env var caps total concurrent Renovate containers. Per-job `Spec.Parallelism` is still enforced as an additional gate.
 - **Anti-starvation via priority-then-oldest-wait sort** — candidates are sorted first by `Priority` descending, then by the oldest `LastRun` time. Among equal-priority candidates, the job that has been waiting longest dispatches first.
-- **UI sub-path (`ROP_BASE_PATH`)** — the UI, API, auth and health routes can be served under a sub-path. `server.go` mounts all routes on a `PathPrefix(basePath)` subrouter; the frontend builds all runtime URLs from `window.__BASE_PATH__`.
 - **Docker stream demultiplexing** — container logs may be in Docker multiplexed format (8-byte frame headers) or raw (Podman/TTY). The `isDockerMultiplexed()` heuristic detects the format and `stdcopy.StdCopy` demuxes when needed.
+- **Image caching** — the executor tracks image pull timestamps and respects `ROP_IMAGE_CACHE_TTL` to avoid redundant pulls.
+- **Access log middleware** — logs every HTTP request with method, path, status, duration, and webhook auth outcome.
+- **CSRF middleware** — validates the `Origin` header on POST/PUT/DELETE requests to prevent cross-site request forgery.
+- **Settings table** — a key-value `settings` table in SQLite stores runtime-generated configuration (webhook secrets, execution options) independently of environment variables.
 
 ## Maintaining This Document
 

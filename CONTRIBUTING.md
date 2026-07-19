@@ -42,8 +42,6 @@ Scopes are optional but encouraged. Use one of the following to indicate which p
 
 | Scope      | Area                                                      |
 |------------|-----------------------------------------------------------|
-| `operator` | Core operator logic (controllers, scheduler, webhooks, …) |
-| `helm`     | Helm chart and templates                                  |
 | `docs`     | Documentation in `docs/`                                  |
 | `deps`     | Dependency updates (`go.mod`, …)                          |
 | `actions`  | Changes to the GitHub Actions                             |
@@ -140,4 +138,3 @@ Examples: `feat/parallel-execution`, `fix/helm-resource-limits`, `docs/webhook-s
 
 - New user-facing features should come with documentation in `docs/`.
 - Update the relevant section of `README.md` if the feature affects the quick-start or feature list.
-- Helm value changes should be reflected in `charts/renovate-operator/values.yaml` comments.

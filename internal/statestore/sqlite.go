@@ -108,7 +108,7 @@ func (s *SQLiteStore) seedDefaultJob() error {
 		return nil
 	}
 
-	platform := envOrDefault("ROP_PLATFORM", "forgejo")
+	platform := envOrDefault("RENOVATE_PLATFORM", "forgejo")
 	endpoint := os.Getenv("ROP_PLATFORM_ENDPOINT")
 	image := envOrDefault("ROP_IMAGE", "renovate/renovate:latest")
 	schedule := envOrDefault("ROP_CRON_SCHEDULE", "0 */4 * * *")

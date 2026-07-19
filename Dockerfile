@@ -58,7 +58,7 @@ ENV ROP_PLATFORM_ENDPOINT=""
 ENV RENOVATE_TOKEN=""
 
 # Platform
-ENV ROP_PLATFORM="forgejo"
+ENV RENOVATE_PLATFORM="forgejo"
 ENV ROP_IMAGE="renovate/renovate:latest"
 
 # Scheduling
