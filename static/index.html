@@ -1562,13 +1562,19 @@
         };
 
         // Stable callbacks for extracted ProjectRow/ProjectCard (B1 perf fix)
-        const handleTriggerRenovate = useCallback((project) => {
-          triggerRenovate(job, project);
-        }, [job]);
+        const handleTriggerRenovate = useCallback(
+          (project) => {
+            triggerRenovate(job, project);
+          },
+          [job],
+        );
 
-        const handleCancelRenovate = useCallback((project) => {
-          cancelRenovate(job, project);
-        }, [job]);
+        const handleCancelRenovate = useCallback(
+          (project) => {
+            cancelRenovate(job, project);
+          },
+          [job],
+        );
 
         const triggerAllRenovate = async (job) => {
           if (job.triggeringAll) return;
@@ -2145,9 +2151,15 @@
                                     jobName={job.name}
                                     platform={job.platform}
                                     platformEndpoint={job.platformEndpoint}
-                                    isProjectExpanded={expandedProjects.has(project.name)}
-                                    isIssueExpanded={expandedIssues.has(project.name)}
-                                    onToggleProjectExpanded={toggleProjectExpanded}
+                                    isProjectExpanded={expandedProjects.has(
+                                      project.name,
+                                    )}
+                                    isIssueExpanded={expandedIssues.has(
+                                      project.name,
+                                    )}
+                                    onToggleProjectExpanded={
+                                      toggleProjectExpanded
+                                    }
                                     onToggleIssueExpanded={toggleIssueExpanded}
                                     onTriggerRenovate={handleTriggerRenovate}
                                     onCancelRenovate={handleCancelRenovate}
@@ -2178,8 +2190,12 @@
                                 jobName={job.name}
                                 platform={job.platform}
                                 platformEndpoint={job.platformEndpoint}
-                                isProjectExpanded={expandedProjects.has(project.name)}
-                                isIssueExpanded={expandedIssues.has(project.name)}
+                                isProjectExpanded={expandedProjects.has(
+                                  project.name,
+                                )}
+                                isIssueExpanded={expandedIssues.has(
+                                  project.name,
+                                )}
                                 onToggleProjectExpanded={toggleProjectExpanded}
                                 onToggleIssueExpanded={toggleIssueExpanded}
                                 onTriggerRenovate={handleTriggerRenovate}
