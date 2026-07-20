@@ -72,7 +72,8 @@
       };
 
       function TimeAgo({ timestamp, className }) {
-        if (!timestamp) return React.createElement("span", { className }, "Never");
+        if (!timestamp)
+          return React.createElement("span", { className }, "Never");
         const date = new Date(timestamp);
         const iso = date.toISOString();
         const tzOffset = -date.getTimezoneOffset();
@@ -86,7 +87,11 @@
         const mi = pad(date.getMinutes());
         const s = pad(date.getSeconds());
         const rfc3339 = `${y}-${mo}-${d} ${h}:${mi}:${s}${tz}`;
-        return React.createElement("time", { dateTime: iso, title: rfc3339, className }, formatTimeAgo(timestamp));
+        return React.createElement(
+          "time",
+          { dateTime: iso, title: rfc3339, className },
+          formatTimeAgo(timestamp),
+        );
       }
 
       const formatLocalTime = (timestamp) => {
@@ -614,7 +619,10 @@
                   />
                 </td>
                 <td className="px-3 xl:px-6 py-4">
-                  <TimeAgo timestamp={project.lastRun} className="text-sm text-gray-600 dark:text-slate-300" />
+                  <TimeAgo
+                    timestamp={project.lastRun}
+                    className="text-sm text-gray-600 dark:text-slate-300"
+                  />
                 </td>
                 <td className="px-3 xl:px-6 py-4" data-no-tooltip="true">
                   <div className="flex items-center gap-2">
@@ -705,7 +713,11 @@
                   className="px-3 xl:px-6 py-4 text-right"
                   data-no-tooltip="true"
                 >
-                  <div className="flex items-center justify-end gap-2" role="group" aria-label={`Actions for ${project.name}`}>
+                  <div
+                    className="flex items-center justify-end gap-2"
+                    role="group"
+                    aria-label={`Actions for ${project.name}`}
+                  >
                     <ActionButton
                       project={project}
                       onTrigger={() => onTriggerRenovate(project)}
@@ -798,8 +810,7 @@
                         )}
                     </div>
                     <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
-                      Last run:{" "}
-                      <TimeAgo timestamp={project.lastRun} />
+                      Last run: <TimeAgo timestamp={project.lastRun} />
                     </p>
                   </div>
                   <span className={`ml-2 ${getBadgeClass(project.status)}`}>
@@ -965,7 +976,12 @@
                       </div>
                     </div>
                   )}
-                <div className="flex gap-2 flex-wrap" data-no-tooltip="true" role="group" aria-label={`Actions for ${project.name}`}>
+                <div
+                  className="flex gap-2 flex-wrap"
+                  data-no-tooltip="true"
+                  role="group"
+                  aria-label={`Actions for ${project.name}`}
+                >
                   <ActionButton
                     project={project}
                     onTrigger={() => onTriggerRenovate(project)}
@@ -1053,14 +1069,18 @@
                 </div>
               </article>
               {tooltipElement}
-          </>
-        );
-      }, (prev, next) => {
-        return prev.project === next.project
-          && prev.isProjectExpanded === next.isProjectExpanded
-          && prev.isIssueExpanded === next.isIssueExpanded
-          && prev.jobName === next.jobName;
-      });
+            </>
+          );
+        },
+        (prev, next) => {
+          return (
+            prev.project === next.project &&
+            prev.isProjectExpanded === next.isProjectExpanded &&
+            prev.isIssueExpanded === next.isIssueExpanded &&
+            prev.jobName === next.jobName
+          );
+        },
+      );
 
       function App() {
         const [jobs, setJobs] = useState([]);
@@ -1323,7 +1343,9 @@
           }
           const next = { key, direction };
           setSortConfig(next);
-          try { localStorage.setItem("sortConfig", JSON.stringify(next)); } catch {}
+          try {
+            localStorage.setItem("sortConfig", JSON.stringify(next));
+          } catch {}
         };
 
         const SortIcon = ({ columnKey }) => {
@@ -1463,10 +1485,25 @@
 
               // Detect discovery status transitions
               const prevStatus = prevDiscoveryStatusRef.current[job.name];
-              if (prevStatus === "running" && job.discoveryStatus === "completed") {
-                addToast("success", "Discovery Completed", `Discovery for ${job.name} finished successfully`);
-              } else if (prevStatus === "running" && job.discoveryStatus === "failed") {
-                addToast("error", "Discovery Failed", job.discoveryError || "Discovery failed with an unknown error");
+              if (
+                prevStatus === "running" &&
+                job.discoveryStatus === "completed"
+              ) {
+                addToast(
+                  "success",
+                  "Discovery Completed",
+                  `Discovery for ${job.name} finished successfully`,
+                );
+              } else if (
+                prevStatus === "running" &&
+                job.discoveryStatus === "failed"
+              ) {
+                addToast(
+                  "error",
+                  "Discovery Failed",
+                  job.discoveryError ||
+                    "Discovery failed with an unknown error",
+                );
               }
               prevDiscoveryStatusRef.current[job.name] = job.discoveryStatus;
             }
@@ -1802,7 +1839,11 @@
 
             <main className="flex-1 max-w-7xl mx-auto w-full px-3 sm:px-6 lg:px-8 pb-6 sm:pb-8">
               {loading && jobs.length === 0 && (
-                <section aria-busy="true" aria-label="Loading projects" className="space-y-6">
+                <section
+                  aria-busy="true"
+                  aria-label="Loading projects"
+                  className="space-y-6"
+                >
                   {/* Header metadata skeleton */}
                   <div className="bg-white dark:bg-slate-800 rounded-lg p-4 sm:p-6 border border-gray-200 dark:border-slate-700 shadow-sm animate-pulse">
                     <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
@@ -1830,10 +1871,17 @@
                       </div>
                       {/* Table rows */}
                       {Array.from({ length: 8 }).map((_, i) => (
-                        <div key={i} className="flex items-center gap-4 px-3 xl:px-6 py-4 border-b border-gray-100 dark:border-slate-700/50">
-                          <div className={`h-4 bg-gray-200 dark:bg-slate-700 rounded ${i % 3 === 0 ? 'w-40' : i % 3 === 1 ? 'w-32' : 'w-36'}`}></div>
+                        <div
+                          key={i}
+                          className="flex items-center gap-4 px-3 xl:px-6 py-4 border-b border-gray-100 dark:border-slate-700/50"
+                        >
+                          <div
+                            className={`h-4 bg-gray-200 dark:bg-slate-700 rounded ${i % 3 === 0 ? "w-40" : i % 3 === 1 ? "w-32" : "w-36"}`}
+                          ></div>
                           <div className="h-5 w-20 bg-gray-200 dark:bg-slate-700 rounded-full"></div>
-                          <div className={`h-5 bg-gray-200 dark:bg-slate-700 rounded-full ${i % 2 === 0 ? 'w-24' : 'w-16'}`}></div>
+                          <div
+                            className={`h-5 bg-gray-200 dark:bg-slate-700 rounded-full ${i % 2 === 0 ? "w-24" : "w-16"}`}
+                          ></div>
                           <div className="h-4 w-14 bg-gray-200 dark:bg-slate-700 rounded"></div>
                           <div className="h-4 w-16 bg-gray-200 dark:bg-slate-700 rounded"></div>
                           <div className="h-7 w-20 bg-gray-200 dark:bg-slate-700 rounded-lg ml-auto"></div>
@@ -1844,10 +1892,15 @@
                     {/* Mobile card skeleton */}
                     <div className="lg:hidden space-y-3">
                       {Array.from({ length: 6 }).map((_, i) => (
-                        <div key={i} className="p-4 border border-gray-100 dark:border-slate-700/50 rounded-lg">
+                        <div
+                          key={i}
+                          className="p-4 border border-gray-100 dark:border-slate-700/50 rounded-lg"
+                        >
                           <div className="flex items-start justify-between mb-3">
                             <div>
-                              <div className={`h-4 bg-gray-200 dark:bg-slate-700 rounded mb-2 ${i % 3 === 0 ? 'w-36' : i % 3 === 1 ? 'w-28' : 'w-32'}`}></div>
+                              <div
+                                className={`h-4 bg-gray-200 dark:bg-slate-700 rounded mb-2 ${i % 3 === 0 ? "w-36" : i % 3 === 1 ? "w-28" : "w-32"}`}
+                              ></div>
                               <div className="h-3 w-20 bg-gray-200 dark:bg-slate-700 rounded"></div>
                             </div>
                             <div className="h-5 w-20 bg-gray-200 dark:bg-slate-700 rounded-full"></div>
@@ -1895,477 +1948,492 @@
 
               {(!loading || jobs.length > 0) && (
                 <section aria-labelledby="projects-heading">
-                <h2 id="projects-heading" className="sr-only">Projects</h2>
-                <div className="space-y-6">
-                  {selectedStatFilter && (
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-lg border border-primary/20 bg-primary/5 dark:bg-primary/10 px-4 py-3">
-                      <p className="text-sm text-gray-700 dark:text-slate-300">
-                        Showing{" "}
-                        <span className="font-semibold text-primary">
-                          {filteredProjectCount}
-                        </span>{" "}
-                        matching project{filteredProjectCount === 1 ? "" : "s"}{" "}
-                        for{" "}
-                        <span className="font-semibold text-primary">
-                          {STAT_FILTER_LABELS[selectedStatFilter]}
-                        </span>
-                      </p>
-                      <button
-                        type="button"
-                        onClick={clearStatFilter}
-                        className="self-start sm:self-auto text-sm font-medium text-primary hover:text-primary-hover transition-colors"
-                      >
-                        Clear filter
-                      </button>
-                    </div>
-                  )}
-
-                  {job ? (
-                    <div className="bg-white dark:bg-slate-800 rounded-lg overflow-hidden border border-gray-200 dark:border-slate-700 shadow-sm">
-                      {/* Toolbar: schedule info + action buttons */}
-                      <div className="flex flex-col gap-3 sm:gap-4 p-3 sm:p-4 lg:p-6">
-                        <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-3 sm:gap-4">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <svg
-                              className="w-4 h-4 sm:w-5 sm:h-5 text-primary flex-shrink-0"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                              aria-hidden="true"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                              />
-                            </svg>
-                            <span className="text-xs sm:text-sm text-gray-600 dark:text-slate-300 font-medium flex-shrink-0">
-                              Schedule:
-                            </span>
-                            <span className="font-mono text-xs sm:text-sm font-semibold text-gray-900 dark:text-slate-100 truncate">
-                              {job.cronExpression || "Not set"}
-                            </span>
-                          </div>
-
-                          <div className="flex items-center gap-2 min-w-0">
-                            <svg
-                              className="w-4 h-4 sm:w-5 sm:h-5 text-primary flex-shrink-0"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                              aria-hidden="true"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M13 10V3L4 14h7v7l9-11h-7z"
-                              />
-                            </svg>
-                            <span className="text-xs sm:text-sm text-gray-600 dark:text-slate-300 font-medium flex-shrink-0">
-                              Next Run:
-                            </span>
-                            {job.nextSchedule ? (
-                              <Countdown nextSchedule={job.nextSchedule} />
-                            ) : (
-                              <span className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">
-                                N/A
-                              </span>
-                            )}
-                          </div>
-
-                          <div className="flex items-center gap-2 sm:ml-auto" role="group" aria-label="Job actions">
-                            <div className="relative flex-shrink-0">
-                              <button
-                                ref={optionsBtnRef}
-                                onClick={() => {
-                                  if (!showOptions && optionsBtnRef.current) {
-                                    const rect =
-                                      optionsBtnRef.current.getBoundingClientRect();
-                                    setOptionsPos({
-                                      top: rect.bottom + 4,
-                                      right: window.innerWidth - rect.right,
-                                    });
-                                  }
-                                  setShowOptions(!showOptions);
-                                }}
-                                className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
-                                aria-label="Execution options"
-                              >
-                                <svg
-                                  className="w-4 h-4 sm:w-5 sm:h-5"
-                                  fill="none"
-                                  stroke="currentColor"
-                                  viewBox="0 0 24 24"
-                                  aria-hidden="true"
-                                >
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
-                                  />
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                                  />
-                                </svg>
-                              </button>
-                              {showOptions && (
-                                <>
-                                  <div
-                                    className="fixed inset-0 z-10"
-                                    onClick={() => setShowOptions(false)}
-                                  />
-                                  <div
-                                    style={{
-                                      top: optionsPos.top,
-                                      right: optionsPos.right,
-                                    }}
-                                    className="fixed z-50 w-60 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-gray-200 dark:border-slate-700 p-4"
-                                  >
-                                    <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-3">
-                                      Execution Options
-                                    </h3>
-                                    <label
-                                      className={`flex items-center gap-2 mb-3 ${job.debugMode?.envOverride ? "opacity-60" : "cursor-pointer"}`}
-                                    >
-                                      <input
-                                        type="checkbox"
-                                        checked={
-                                          job.debugMode?.envOverride
-                                            ? job.debugMode.enabled
-                                            : debugOption
-                                        }
-                                        onChange={(e) =>
-                                          setDebugOption(e.target.checked)
-                                        }
-                                        disabled={!!job.debugMode?.envOverride}
-                                        className="w-4 h-4 rounded border-gray-300 accent-primary"
-                                      />
-                                      <span className="text-sm text-gray-700 dark:text-slate-300">
-                                        {job.debugMode?.envOverride
-                                          ? `Debug mode (set via envvar, ${job.debugMode.envOverride.name})`
-                                          : "Debug mode"}
-                                      </span>
-                                    </label>
-                                    <label className="flex items-center gap-2 mb-3 cursor-pointer">
-                                      <input
-                                        type="checkbox"
-                                        checked={webhookOption}
-                                        onChange={(e) =>
-                                          setWebhookOption(e.target.checked)
-                                        }
-                                        className="w-4 h-4 rounded border-gray-300 accent-primary"
-                                      />
-                                      <span className="text-sm text-gray-700 dark:text-slate-300">
-                                        Webhook enabled
-                                      </span>
-                                    </label>
-                                    <button
-                                      onClick={() => {
-                                        saveExecutionOptions(job, {
-                                          debug: debugOption,
-                                          webhookEnabled: webhookOption,
-                                        });
-                                        setShowOptions(false);
-                                      }}
-                                      className="w-full bg-primary hover:bg-primary-hover text-white px-3 py-2 rounded-lg text-sm font-semibold transition-colors"
-                                    >
-                                      Save
-                                    </button>
-                                    <div className="border-t border-gray-200 dark:border-slate-700 mt-3 pt-3">
-                                      <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-2">
-                                        Hide Projects
-                                      </h3>
-                                      {STATUS_FILTERS.map((status) => (
-                                        <label
-                                          key={status}
-                                          className="flex items-center gap-2 mb-1.5 cursor-pointer"
-                                        >
-                                          <input
-                                            type="checkbox"
-                                            checked={hiddenStatuses.includes(
-                                              status,
-                                            )}
-                                            onChange={() =>
-                                              toggleStatusFilter(status)
-                                            }
-                                            className="w-4 h-4 rounded border-gray-300 accent-primary"
-                                          />
-                                          <span className="text-sm text-gray-700 dark:text-slate-300">
-                                            {status}
-                                            {statusCounts[status] > 0
-                                              ? ` (${statusCounts[status]})`
-                                              : ""}
-                                          </span>
-                                        </label>
-                                      ))}
-                                      <label className="flex items-center gap-2 mb-1.5 cursor-pointer">
-                                        <input
-                                          type="checkbox"
-                                          checked={hideNoPRs}
-                                          onChange={toggleHideNoPRs}
-                                          className="w-4 h-4 rounded border-gray-300 accent-primary"
-                                        />
-                                        <span className="text-sm text-gray-700 dark:text-slate-300">
-                                          Without PRs
-                                        </span>
-                                      </label>
-                                      <label className="flex items-center gap-2 mb-1.5 cursor-pointer">
-                                        <input
-                                          type="checkbox"
-                                          checked={hideNoIssues}
-                                          onChange={toggleHideNoIssues}
-                                          className="w-4 h-4 rounded border-gray-300 accent-primary"
-                                        />
-                                        <span className="text-sm text-gray-700 dark:text-slate-300">
-                                          Without Issues
-                                        </span>
-                                      </label>
-                                    </div>
-                                  </div>
-                                </>
-                              )}
-                            </div>
-
-                            <button
-                              onClick={() => runDiscovery(job)}
-                              disabled={job.discoveryRunning}
-                              className="bg-primary hover:bg-primary-hover disabled:opacity-60 disabled:cursor-not-allowed text-white px-3 py-2 sm:px-4 sm:py-2 rounded-lg font-semibold text-xs sm:text-sm shadow-sm hover:shadow-md active:scale-98 transition-all flex items-center justify-center gap-2"
-                              title={
-                                job.discoveryRunning
-                                  ? "Discovery is already in progress"
-                                  : `Run discovery for ${job.name}`
-                              }
-                              aria-label={
-                                job.discoveryRunning
-                                  ? "Discovery running"
-                                  : `Run discovery for ${job.name}`
-                              }
-                            >
-                              <svg
-                                className={`w-3 h-3 sm:w-4 sm:h-4 ${
-                                  job.discoveryRunning ? "animate-spin" : ""
-                                }`}
-                                fill="currentColor"
-                                viewBox="0 0 20 20"
-                                aria-hidden="true"
-                              >
-                                <path
-                                  fillRule="evenodd"
-                                  d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z"
-                                  clipRule="evenodd"
-                                />
-                              </svg>
-                              <span>
-                                {job.discoveryRunning
-                                  ? "Running..."
-                                  : "Run Discovery"}
-                              </span>
-                            </button>
-
-                            <button
-                              onClick={() => triggerAllRenovate(job)}
-                              disabled={
-                                job.triggeringAll ||
-                                !job.projects ||
-                                job.projects.length === 0
-                              }
-                              className="bg-primary hover:bg-primary-hover disabled:opacity-60 disabled:cursor-not-allowed text-white px-3 py-2 sm:px-4 sm:py-2 rounded-lg font-semibold text-xs sm:text-sm shadow-sm hover:shadow-md active:scale-98 transition-all flex items-center justify-center gap-2"
-                              aria-label={
-                                job.triggeringAll
-                                  ? "Triggering all projects"
-                                  : `Trigger all projects for ${job.name}`
-                              }
-                            >
-                              <svg
-                                className={`w-3 h-3 sm:w-4 sm:h-4 ${
-                                  job.triggeringAll ? "animate-spin" : ""
-                                }`}
-                                fill="currentColor"
-                                viewBox="0 0 20 20"
-                                aria-hidden="true"
-                              >
-                                <path
-                                  fillRule="evenodd"
-                                  d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z"
-                                  clipRule="evenodd"
-                                />
-                              </svg>
-                              <span>
-                                {job.triggeringAll
-                                  ? "Triggering..."
-                                  : "Trigger All"}
-                              </span>
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Project table (desktop) */}
-                      <div className="border-t border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/50">
-                        <div className="hidden lg:block overflow-x-auto">
-                          <table className="w-full">
-                            <caption className="sr-only">Project status and actions</caption>
-                            <thead className="bg-white dark:bg-slate-700 border-b border-gray-200 dark:border-slate-600">
-                              <tr>
-                                <th
-                                  className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-600 select-none"
-                                  onClick={() => handleSort("name")}
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <span>Project</span>
-                                    <SortIcon columnKey="name" />
-                                  </div>
-                                </th>
-                                <th
-                                  className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-600 select-none"
-                                  onClick={() => handleSort("status")}
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <span>Status</span>
-                                    <SortIcon columnKey="status" />
-                                  </div>
-                                </th>
-                                <th
-                                  className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-600 select-none"
-                                  onClick={() => handleSort("openPRs")}
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <span>Activity</span>
-                                    <SortIcon columnKey="openPRs" />
-                                  </div>
-                                </th>
-                                <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider select-none">
-                                  Issues
-                                </th>
-                                <th
-                                  className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-600 select-none"
-                                  onClick={() => handleSort("lastRun")}
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <span>Last Run</span>
-                                    <SortIcon columnKey="lastRun" />
-                                  </div>
-                                </th>
-                                <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider">
-                                  Links
-                                </th>
-                                <th className="px-3 xl:px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider">
-                                  Actions
-                                </th>
-                              </tr>
-                            </thead>
-                            <tbody className="bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-slate-700">
-                              {sortedProjects.length > 0 ? (
-                                sortedProjects.map((project) => (
-                                  <ProjectRow
-                                    key={project.name}
-                                    project={project}
-                                    jobName={job.name}
-                                    platform={job.platform}
-                                    platformEndpoint={job.platformEndpoint}
-                                    isProjectExpanded={expandedProjects.has(
-                                      project.name,
-                                    )}
-                                    isIssueExpanded={expandedIssues.has(
-                                      project.name,
-                                    )}
-                                    onToggleProjectExpanded={
-                                      toggleProjectExpanded
-                                    }
-                                    onToggleIssueExpanded={toggleIssueExpanded}
-                                    onTriggerRenovate={handleTriggerRenovate}
-                                    onCancelRenovate={handleCancelRenovate}
-                                  />
-                                ))
-                              ) : (
-                                <tr>
-                                  <td
-                                    colSpan="7"
-                                    className="px-6 py-8 text-center text-gray-500 dark:text-slate-400"
-                                  >
-                                    No projects found. Run discovery to find
-                                    projects.
-                                  </td>
-                                </tr>
-                              )}
-                            </tbody>
-                          </table>
-                        </div>
-
-                        {/* Project cards (mobile) */}
-                        <div className="lg:hidden bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-slate-700">
-                          {sortedProjects.length > 0 ? (
-                            sortedProjects.map((project) => (
-                              <ProjectCard
-                                key={project.name}
-                                project={project}
-                                jobName={job.name}
-                                platform={job.platform}
-                                platformEndpoint={job.platformEndpoint}
-                                isProjectExpanded={expandedProjects.has(
-                                  project.name,
-                                )}
-                                isIssueExpanded={expandedIssues.has(
-                                  project.name,
-                                )}
-                                onToggleProjectExpanded={toggleProjectExpanded}
-                                onToggleIssueExpanded={toggleIssueExpanded}
-                                onTriggerRenovate={handleTriggerRenovate}
-                                onCancelRenovate={handleCancelRenovate}
-                              />
-                            ))
-                          ) : (
-                            <div className="p-8 text-center text-gray-500 dark:text-slate-400">
-                              No projects found. Run discovery to find projects.
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-center py-12 bg-white dark:bg-slate-800 rounded-lg border border-gray-200 dark:border-slate-700 shadow-sm">
-                      <svg
-                        className="w-16 h-16 text-gray-400 mx-auto mb-4"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                        aria-hidden="true"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="2"
-                          d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"
-                        />
-                      </svg>
-                      <h3 className="text-lg font-semibold text-gray-700 dark:text-slate-300 mb-2">
-                        {selectedStatFilter
-                          ? "No projects match this filter"
-                          : "No projects discovered yet"}
-                      </h3>
-                      <p className="text-gray-500 dark:text-slate-400 mb-4">
-                        {selectedStatFilter
-                          ? `Try clearing the ${STAT_FILTER_LABELS[selectedStatFilter]} filter to see all projects.`
-                          : "Run Discovery to get started."}
-                      </p>
-                      {selectedStatFilter && (
+                  <h2 id="projects-heading" className="sr-only">
+                    Projects
+                  </h2>
+                  <div className="space-y-6">
+                    {selectedStatFilter && (
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-lg border border-primary/20 bg-primary/5 dark:bg-primary/10 px-4 py-3">
+                        <p className="text-sm text-gray-700 dark:text-slate-300">
+                          Showing{" "}
+                          <span className="font-semibold text-primary">
+                            {filteredProjectCount}
+                          </span>{" "}
+                          matching project
+                          {filteredProjectCount === 1 ? "" : "s"} for{" "}
+                          <span className="font-semibold text-primary">
+                            {STAT_FILTER_LABELS[selectedStatFilter]}
+                          </span>
+                        </p>
                         <button
                           type="button"
                           onClick={clearStatFilter}
-                          className="px-4 py-2 bg-primary hover:bg-primary-hover text-white rounded-lg transition-colors"
+                          className="self-start sm:self-auto text-sm font-medium text-primary hover:text-primary-hover transition-colors"
                         >
-                          Show all projects
+                          Clear filter
                         </button>
-                      )}
-                    </div>
-                  )}
-                </div>
+                      </div>
+                    )}
+
+                    {job ? (
+                      <div className="bg-white dark:bg-slate-800 rounded-lg overflow-hidden border border-gray-200 dark:border-slate-700 shadow-sm">
+                        {/* Toolbar: schedule info + action buttons */}
+                        <div className="flex flex-col gap-3 sm:gap-4 p-3 sm:p-4 lg:p-6">
+                          <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-3 sm:gap-4">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <svg
+                                className="w-4 h-4 sm:w-5 sm:h-5 text-primary flex-shrink-0"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                                aria-hidden="true"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                                />
+                              </svg>
+                              <span className="text-xs sm:text-sm text-gray-600 dark:text-slate-300 font-medium flex-shrink-0">
+                                Schedule:
+                              </span>
+                              <span className="font-mono text-xs sm:text-sm font-semibold text-gray-900 dark:text-slate-100 truncate">
+                                {job.cronExpression || "Not set"}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-2 min-w-0">
+                              <svg
+                                className="w-4 h-4 sm:w-5 sm:h-5 text-primary flex-shrink-0"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                                aria-hidden="true"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M13 10V3L4 14h7v7l9-11h-7z"
+                                />
+                              </svg>
+                              <span className="text-xs sm:text-sm text-gray-600 dark:text-slate-300 font-medium flex-shrink-0">
+                                Next Run:
+                              </span>
+                              {job.nextSchedule ? (
+                                <Countdown nextSchedule={job.nextSchedule} />
+                              ) : (
+                                <span className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">
+                                  N/A
+                                </span>
+                              )}
+                            </div>
+
+                            <div
+                              className="flex items-center gap-2 sm:ml-auto"
+                              role="group"
+                              aria-label="Job actions"
+                            >
+                              <div className="relative flex-shrink-0">
+                                <button
+                                  ref={optionsBtnRef}
+                                  onClick={() => {
+                                    if (!showOptions && optionsBtnRef.current) {
+                                      const rect =
+                                        optionsBtnRef.current.getBoundingClientRect();
+                                      setOptionsPos({
+                                        top: rect.bottom + 4,
+                                        right: window.innerWidth - rect.right,
+                                      });
+                                    }
+                                    setShowOptions(!showOptions);
+                                  }}
+                                  className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
+                                  aria-label="Execution options"
+                                >
+                                  <svg
+                                    className="w-4 h-4 sm:w-5 sm:h-5"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                    aria-hidden="true"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+                                    />
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                                    />
+                                  </svg>
+                                </button>
+                                {showOptions && (
+                                  <>
+                                    <div
+                                      className="fixed inset-0 z-10"
+                                      onClick={() => setShowOptions(false)}
+                                    />
+                                    <div
+                                      style={{
+                                        top: optionsPos.top,
+                                        right: optionsPos.right,
+                                      }}
+                                      className="fixed z-50 w-60 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-gray-200 dark:border-slate-700 p-4"
+                                    >
+                                      <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-3">
+                                        Execution Options
+                                      </h3>
+                                      <label
+                                        className={`flex items-center gap-2 mb-3 ${job.debugMode?.envOverride ? "opacity-60" : "cursor-pointer"}`}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={
+                                            job.debugMode?.envOverride
+                                              ? job.debugMode.enabled
+                                              : debugOption
+                                          }
+                                          onChange={(e) =>
+                                            setDebugOption(e.target.checked)
+                                          }
+                                          disabled={
+                                            !!job.debugMode?.envOverride
+                                          }
+                                          className="w-4 h-4 rounded border-gray-300 accent-primary"
+                                        />
+                                        <span className="text-sm text-gray-700 dark:text-slate-300">
+                                          {job.debugMode?.envOverride
+                                            ? `Debug mode (set via envvar, ${job.debugMode.envOverride.name})`
+                                            : "Debug mode"}
+                                        </span>
+                                      </label>
+                                      <label className="flex items-center gap-2 mb-3 cursor-pointer">
+                                        <input
+                                          type="checkbox"
+                                          checked={webhookOption}
+                                          onChange={(e) =>
+                                            setWebhookOption(e.target.checked)
+                                          }
+                                          className="w-4 h-4 rounded border-gray-300 accent-primary"
+                                        />
+                                        <span className="text-sm text-gray-700 dark:text-slate-300">
+                                          Webhook enabled
+                                        </span>
+                                      </label>
+                                      <button
+                                        onClick={() => {
+                                          saveExecutionOptions(job, {
+                                            debug: debugOption,
+                                            webhookEnabled: webhookOption,
+                                          });
+                                          setShowOptions(false);
+                                        }}
+                                        className="w-full bg-primary hover:bg-primary-hover text-white px-3 py-2 rounded-lg text-sm font-semibold transition-colors"
+                                      >
+                                        Save
+                                      </button>
+                                      <div className="border-t border-gray-200 dark:border-slate-700 mt-3 pt-3">
+                                        <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-2">
+                                          Hide Projects
+                                        </h3>
+                                        {STATUS_FILTERS.map((status) => (
+                                          <label
+                                            key={status}
+                                            className="flex items-center gap-2 mb-1.5 cursor-pointer"
+                                          >
+                                            <input
+                                              type="checkbox"
+                                              checked={hiddenStatuses.includes(
+                                                status,
+                                              )}
+                                              onChange={() =>
+                                                toggleStatusFilter(status)
+                                              }
+                                              className="w-4 h-4 rounded border-gray-300 accent-primary"
+                                            />
+                                            <span className="text-sm text-gray-700 dark:text-slate-300">
+                                              {status}
+                                              {statusCounts[status] > 0
+                                                ? ` (${statusCounts[status]})`
+                                                : ""}
+                                            </span>
+                                          </label>
+                                        ))}
+                                        <label className="flex items-center gap-2 mb-1.5 cursor-pointer">
+                                          <input
+                                            type="checkbox"
+                                            checked={hideNoPRs}
+                                            onChange={toggleHideNoPRs}
+                                            className="w-4 h-4 rounded border-gray-300 accent-primary"
+                                          />
+                                          <span className="text-sm text-gray-700 dark:text-slate-300">
+                                            Without PRs
+                                          </span>
+                                        </label>
+                                        <label className="flex items-center gap-2 mb-1.5 cursor-pointer">
+                                          <input
+                                            type="checkbox"
+                                            checked={hideNoIssues}
+                                            onChange={toggleHideNoIssues}
+                                            className="w-4 h-4 rounded border-gray-300 accent-primary"
+                                          />
+                                          <span className="text-sm text-gray-700 dark:text-slate-300">
+                                            Without Issues
+                                          </span>
+                                        </label>
+                                      </div>
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+
+                              <button
+                                onClick={() => runDiscovery(job)}
+                                disabled={job.discoveryRunning}
+                                className="bg-primary hover:bg-primary-hover disabled:opacity-60 disabled:cursor-not-allowed text-white px-3 py-2 sm:px-4 sm:py-2 rounded-lg font-semibold text-xs sm:text-sm shadow-sm hover:shadow-md active:scale-98 transition-all flex items-center justify-center gap-2"
+                                title={
+                                  job.discoveryRunning
+                                    ? "Discovery is already in progress"
+                                    : `Run discovery for ${job.name}`
+                                }
+                                aria-label={
+                                  job.discoveryRunning
+                                    ? "Discovery running"
+                                    : `Run discovery for ${job.name}`
+                                }
+                              >
+                                <svg
+                                  className={`w-3 h-3 sm:w-4 sm:h-4 ${
+                                    job.discoveryRunning ? "animate-spin" : ""
+                                  }`}
+                                  fill="currentColor"
+                                  viewBox="0 0 20 20"
+                                  aria-hidden="true"
+                                >
+                                  <path
+                                    fillRule="evenodd"
+                                    d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z"
+                                    clipRule="evenodd"
+                                  />
+                                </svg>
+                                <span>
+                                  {job.discoveryRunning
+                                    ? "Running..."
+                                    : "Run Discovery"}
+                                </span>
+                              </button>
+
+                              <button
+                                onClick={() => triggerAllRenovate(job)}
+                                disabled={
+                                  job.triggeringAll ||
+                                  !job.projects ||
+                                  job.projects.length === 0
+                                }
+                                className="bg-primary hover:bg-primary-hover disabled:opacity-60 disabled:cursor-not-allowed text-white px-3 py-2 sm:px-4 sm:py-2 rounded-lg font-semibold text-xs sm:text-sm shadow-sm hover:shadow-md active:scale-98 transition-all flex items-center justify-center gap-2"
+                                aria-label={
+                                  job.triggeringAll
+                                    ? "Triggering all projects"
+                                    : `Trigger all projects for ${job.name}`
+                                }
+                              >
+                                <svg
+                                  className={`w-3 h-3 sm:w-4 sm:h-4 ${
+                                    job.triggeringAll ? "animate-spin" : ""
+                                  }`}
+                                  fill="currentColor"
+                                  viewBox="0 0 20 20"
+                                  aria-hidden="true"
+                                >
+                                  <path
+                                    fillRule="evenodd"
+                                    d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z"
+                                    clipRule="evenodd"
+                                  />
+                                </svg>
+                                <span>
+                                  {job.triggeringAll
+                                    ? "Triggering..."
+                                    : "Trigger All"}
+                                </span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Project table (desktop) */}
+                        <div className="border-t border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/50">
+                          <div className="hidden lg:block overflow-x-auto">
+                            <table className="w-full">
+                              <caption className="sr-only">
+                                Project status and actions
+                              </caption>
+                              <thead className="bg-white dark:bg-slate-700 border-b border-gray-200 dark:border-slate-600">
+                                <tr>
+                                  <th
+                                    className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-600 select-none"
+                                    onClick={() => handleSort("name")}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <span>Project</span>
+                                      <SortIcon columnKey="name" />
+                                    </div>
+                                  </th>
+                                  <th
+                                    className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-600 select-none"
+                                    onClick={() => handleSort("status")}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <span>Status</span>
+                                      <SortIcon columnKey="status" />
+                                    </div>
+                                  </th>
+                                  <th
+                                    className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-600 select-none"
+                                    onClick={() => handleSort("openPRs")}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <span>Activity</span>
+                                      <SortIcon columnKey="openPRs" />
+                                    </div>
+                                  </th>
+                                  <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider select-none">
+                                    Issues
+                                  </th>
+                                  <th
+                                    className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-600 select-none"
+                                    onClick={() => handleSort("lastRun")}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <span>Last Run</span>
+                                      <SortIcon columnKey="lastRun" />
+                                    </div>
+                                  </th>
+                                  <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider">
+                                    Links
+                                  </th>
+                                  <th className="px-3 xl:px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider">
+                                    Actions
+                                  </th>
+                                </tr>
+                              </thead>
+                              <tbody className="bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-slate-700">
+                                {sortedProjects.length > 0 ? (
+                                  sortedProjects.map((project) => (
+                                    <ProjectRow
+                                      key={project.name}
+                                      project={project}
+                                      jobName={job.name}
+                                      platform={job.platform}
+                                      platformEndpoint={job.platformEndpoint}
+                                      isProjectExpanded={expandedProjects.has(
+                                        project.name,
+                                      )}
+                                      isIssueExpanded={expandedIssues.has(
+                                        project.name,
+                                      )}
+                                      onToggleProjectExpanded={
+                                        toggleProjectExpanded
+                                      }
+                                      onToggleIssueExpanded={
+                                        toggleIssueExpanded
+                                      }
+                                      onTriggerRenovate={handleTriggerRenovate}
+                                      onCancelRenovate={handleCancelRenovate}
+                                    />
+                                  ))
+                                ) : (
+                                  <tr>
+                                    <td
+                                      colSpan="7"
+                                      className="px-6 py-8 text-center text-gray-500 dark:text-slate-400"
+                                    >
+                                      No projects found. Run discovery to find
+                                      projects.
+                                    </td>
+                                  </tr>
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          {/* Project cards (mobile) */}
+                          <div className="lg:hidden bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-slate-700">
+                            {sortedProjects.length > 0 ? (
+                              sortedProjects.map((project) => (
+                                <ProjectCard
+                                  key={project.name}
+                                  project={project}
+                                  jobName={job.name}
+                                  platform={job.platform}
+                                  platformEndpoint={job.platformEndpoint}
+                                  isProjectExpanded={expandedProjects.has(
+                                    project.name,
+                                  )}
+                                  isIssueExpanded={expandedIssues.has(
+                                    project.name,
+                                  )}
+                                  onToggleProjectExpanded={
+                                    toggleProjectExpanded
+                                  }
+                                  onToggleIssueExpanded={toggleIssueExpanded}
+                                  onTriggerRenovate={handleTriggerRenovate}
+                                  onCancelRenovate={handleCancelRenovate}
+                                />
+                              ))
+                            ) : (
+                              <div className="p-8 text-center text-gray-500 dark:text-slate-400">
+                                No projects found. Run discovery to find
+                                projects.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center py-12 bg-white dark:bg-slate-800 rounded-lg border border-gray-200 dark:border-slate-700 shadow-sm">
+                        <svg
+                          className="w-16 h-16 text-gray-400 mx-auto mb-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                          aria-hidden="true"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"
+                          />
+                        </svg>
+                        <h3 className="text-lg font-semibold text-gray-700 dark:text-slate-300 mb-2">
+                          {selectedStatFilter
+                            ? "No projects match this filter"
+                            : "No projects discovered yet"}
+                        </h3>
+                        <p className="text-gray-500 dark:text-slate-400 mb-4">
+                          {selectedStatFilter
+                            ? `Try clearing the ${STAT_FILTER_LABELS[selectedStatFilter]} filter to see all projects.`
+                            : "Run Discovery to get started."}
+                        </p>
+                        {selectedStatFilter && (
+                          <button
+                            type="button"
+                            onClick={clearStatFilter}
+                            className="px-4 py-2 bg-primary hover:bg-primary-hover text-white rounded-lg transition-colors"
+                          >
+                            Show all projects
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </section>
               )}
             </main>
@@ -2439,7 +2507,9 @@
               const aCount = getProjectOpenPRCount(a);
               const bCount = getProjectOpenPRCount(b);
               if (aCount !== bCount) {
-                return sortConfig.direction === "asc" ? aCount - bCount : bCount - aCount;
+                return sortConfig.direction === "asc"
+                  ? aCount - bCount
+                  : bCount - aCount;
               }
               return (a.name || "").localeCompare(b.name || "");
             }
