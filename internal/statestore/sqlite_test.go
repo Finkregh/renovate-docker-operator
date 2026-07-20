@@ -511,3 +511,84 @@ func TestEnsureWebhookSecret_CommaSeparated(t *testing.T) {
 		}
 	}
 }
+
+// TestUpdateProjectStatusBatched_ReschedulesNonRunning verifies that after a
+// cron discovery cycle the batch-update call sets completed/failed projects back
+// to 'scheduled' while leaving any running project untouched.
+func TestUpdateProjectStatusBatched_ReschedulesNonRunning(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	job := &api.RenovateJob{Name: "default"}
+	jobID := RenovateJobIdentifier{Name: "default"}
+
+	// Seed four projects.
+	_, err := store.ReconcileProjects(ctx, job, []string{
+		"org/completed-repo",
+		"org/failed-repo",
+		"org/running-repo",
+		"org/scheduled-repo",
+	})
+	if err != nil {
+		t.Fatalf("ReconcileProjects failed: %v", err)
+	}
+
+	// Set individual statuses so we have a mix.
+	statuses := map[string]api.RenovateProjectStatus{
+		"org/completed-repo": api.JobStatusCompleted,
+		"org/failed-repo":    api.JobStatusFailed,
+		"org/running-repo":   api.JobStatusRunning,
+		// "org/scheduled-repo" keeps the default 'scheduled' status from ReconcileProjects.
+	}
+	for name, status := range statuses {
+		s := status // capture loop variable
+		if err := store.UpdateProjectStatus(ctx, name, jobID, &RenovateStatusUpdate{Status: s}); err != nil {
+			t.Fatalf("UpdateProjectStatus(%s) failed: %v", name, err)
+		}
+	}
+
+	// Simulate what runScheduledCycle will do after the bug-fix:
+	// set all non-running projects back to 'scheduled'.
+	err = store.UpdateProjectStatusBatched(
+		ctx,
+		func(p api.ProjectStatus) bool {
+			return p.Status != api.JobStatusRunning
+		},
+		jobID,
+		&RenovateStatusUpdate{Status: api.JobStatusScheduled},
+	)
+	if err != nil {
+		t.Fatalf("UpdateProjectStatusBatched failed: %v", err)
+	}
+
+	// Verify final states.
+	expectedScheduled := []string{"org/completed-repo", "org/failed-repo", "org/scheduled-repo"}
+	for _, name := range expectedScheduled {
+		projects, err := store.GetProjectsByStatus(ctx, jobID, api.JobStatusScheduled)
+		if err != nil {
+			t.Fatalf("GetProjectsByStatus(scheduled) failed: %v", err)
+		}
+		found := false
+		for _, p := range projects {
+			if p.Name == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected %q to be 'scheduled' after batch update, but it was not", name)
+		}
+	}
+
+	// The running project must remain running.
+	runningProjects, err := store.GetProjectsByStatus(ctx, jobID, api.JobStatusRunning)
+	if err != nil {
+		t.Fatalf("GetProjectsByStatus(running) failed: %v", err)
+	}
+	if len(runningProjects) != 1 {
+		t.Fatalf("expected 1 running project, got %d", len(runningProjects))
+	}
+	if runningProjects[0].Name != "org/running-repo" {
+		t.Fatalf("expected running project to be 'org/running-repo', got %q", runningProjects[0].Name)
+	}
+}

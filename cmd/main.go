@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/config"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/api"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/discovery"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/executor"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/scheduler"
@@ -160,6 +161,17 @@ func runScheduledCycle(ctx context.Context, disc *discovery.Agent, store *states
 		job := &jobs[i]
 		if _, err := disc.RunDiscovery(ctx, job); err != nil {
 			logger.Error("discovery failed for job", "job", job.Name, "error", err)
+			continue
+		}
+		logger.Info("scheduling all projects after discovery", "job", job.Name)
+		jobID := statestore.RenovateJobIdentifier{Name: job.Name}
+		isNotRunning := func(p api.ProjectStatus) bool {
+			return p.Status != api.JobStatusRunning
+		}
+		if err := store.UpdateProjectStatusBatched(ctx, isNotRunning, jobID, &statestore.RenovateStatusUpdate{
+			Status: api.JobStatusScheduled,
+		}); err != nil {
+			logger.Error("failed to schedule projects after discovery", "job", job.Name, "error", err)
 		}
 	}
 
