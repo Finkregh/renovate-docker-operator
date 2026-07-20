@@ -41,7 +41,7 @@ type Config struct {
 	GracePeriod time.Duration // ROP_SHUTDOWN_GRACE_PERIOD (default: 300)
 
 	// Platform
-	Platform         string // ROP_PLATFORM (default: forgejo)
+	Platform         string // RENOVATE_PLATFORM (default: forgejo)
 	PlatformEndpoint string // ROP_PLATFORM_ENDPOINT (required)
 	PlatformToken    string // RENOVATE_TOKEN (required)
 
@@ -89,7 +89,7 @@ func Load() (*Config, error) {
 		CacheVolume:      envOrDefault("ROP_CACHE_VOLUME", "renovate-cache"),
 		ContainerNetwork: os.Getenv("ROP_CONTAINER_NETWORK"),
 		ImagePullPolicy:  envOrDefault("ROP_IMAGE_PULL_POLICY", "if-not-present"),
-		Platform:         envOrDefault("ROP_PLATFORM", "forgejo"),
+		Platform:         envOrDefault("RENOVATE_PLATFORM", "forgejo"),
 		PlatformEndpoint: os.Getenv("ROP_PLATFORM_ENDPOINT"),
 		PlatformToken:    os.Getenv("RENOVATE_TOKEN"),
 		CronSchedule:     envOrDefault("ROP_CRON_SCHEDULE", "0 */4 * * *"),
@@ -153,7 +153,7 @@ func Load() (*Config, error) {
 		"ROP_PARALLELISM":           strconv.Itoa(cfg.Parallelism),
 		"ROP_JOB_TIMEOUT":           strconv.Itoa(jobTimeoutSec),
 		"ROP_SHUTDOWN_GRACE_PERIOD": strconv.Itoa(gracePeriodSec),
-		"ROP_PLATFORM":              cfg.Platform,
+		"RENOVATE_PLATFORM":              cfg.Platform,
 		"ROP_PLATFORM_ENDPOINT":     cfg.PlatformEndpoint,
 		"RENOVATE_TOKEN":            cfg.PlatformToken,
 		"ROP_CRON_SCHEDULE":         cfg.CronSchedule,

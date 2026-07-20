@@ -1,0 +1,53 @@
+name: Build PR Image
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  build-container:
+    uses: ./.github/workflows/reusable-build-image.yaml
+    with:
+      tag_suffixes: "pr-${{ github.event.pull_request.number }}"
+    secrets: inherit
+
+  comment:
+    name: Comment image tag on PR
+    runs-on: ubuntu-latest
+    needs: build-container
+    container:
+      image: node:24-bookworm@sha256:5711a0d445a1af54af9589066c646df387d1831a608226f4cd694fc59e745059
+
+    steps:
+      - name: Get server domain
+        id: server_domain
+        shell: bash
+        run: |
+          echo "server_domain=$(echo '${{ github.api_url }}' | awk -F'[/:]' '{print $4}')" >> "$GITHUB_OUTPUT"
+
+      - name: Comment image tag on PR
+        env:
+          TOKEN: ${{ secrets.PACKAGE_UPLOAD_TOKEN }}
+          SERVER: ${{ github.server_url }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          IMAGE_TAG: ${{ steps.server_domain.outputs.server_domain }}/${{ github.repository }}:pr-${{ github.event.pull_request.number }}
+        run: |
+          COMMENT_BODY="🐳 Dev image published: \`${IMAGE_TAG}\`
+
+          \`\`\`bash
+          docker pull ${IMAGE_TAG}
+          \`\`\`"
+
+          # Check if we already commented (avoid spam on synchronize)
+          EXISTING=$(curl -s -H "Authorization: token ${TOKEN}" \
+            "${SERVER}/api/v1/repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            | grep -c "Dev image published" || true)
+
+          if [ "$EXISTING" = "0" ]; then
+            curl -s --fail -X POST \
+              -H "Authorization: token ${TOKEN}" \
+              -H "Content-Type: application/json" \
+              -d "{\"body\": \"${COMMENT_BODY}\"}" \
+              "${SERVER}/api/v1/repos/${REPO}/issues/${PR_NUMBER}/comments"
+          fi

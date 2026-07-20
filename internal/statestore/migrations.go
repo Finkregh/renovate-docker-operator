@@ -12,6 +12,7 @@ var migrations = []string{
 	migration0001,
 	migration0002,
 	migration0003,
+	migration0004,
 }
 
 const migration0001 = `
@@ -125,6 +126,17 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL,
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+`
+
+// migration0004 adds discovery_status table for tracking async discovery runs.
+const migration0004 = `
+CREATE TABLE IF NOT EXISTS discovery_status (
+    job_name TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'idle',
+    started_at TEXT,
+    completed_at TEXT,
+    error_message TEXT
 );
 `
 

@@ -12,12 +12,16 @@ import (
 	"time"
 
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/config"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/api"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/discovery"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/executor"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/scheduler"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/server"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/statestore"
 )
+
+// Version is set via -ldflags "-X main.Version=..." at build time.
+var Version = "dev"
 
 func main() {
 	if err := run(); err != nil {
@@ -99,7 +103,7 @@ func run() error {
 	sched.Start()
 
 	// 8. Start unified HTTP server (UI + webhook + health + API)
-	srv := server.New(store, disc, sched, logger, "0.1.0", cfg.MaxRequestBody)
+	srv := server.New(store, disc, sched, exec, logger, Version, cfg.MaxRequestBody)
 	srv.Start()
 
 	logger.Info("operator started — waiting for signals")
@@ -157,6 +161,17 @@ func runScheduledCycle(ctx context.Context, disc *discovery.Agent, store *states
 		job := &jobs[i]
 		if _, err := disc.RunDiscovery(ctx, job); err != nil {
 			logger.Error("discovery failed for job", "job", job.Name, "error", err)
+			continue
+		}
+		logger.Info("scheduling all projects after discovery", "job", job.Name)
+		jobID := statestore.RenovateJobIdentifier{Name: job.Name}
+		isNotRunning := func(p api.ProjectStatus) bool {
+			return p.Status != api.JobStatusRunning
+		}
+		if err := store.UpdateProjectStatusBatched(ctx, isNotRunning, jobID, &statestore.RenovateStatusUpdate{
+			Status: api.JobStatusScheduled,
+		}); err != nil {
+			logger.Error("failed to schedule projects after discovery", "job", job.Name, "error", err)
 		}
 	}
 

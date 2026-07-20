@@ -25,9 +25,9 @@ Only add yourself if you are running the operator in a permanent deployment (not
 
 ## Adopters
 
-### mogenius
+### finkregh
 Running the operator to manage dependency updates across internal services.
-- **Providers**: GitHub
-- **Repositories**: ~150
-- **Link**: https://github.com/mogenius/renovate-operator
-- **Contact**: @lukashankeln
+- **Providers**: Forgejo
+- **Repositories**: ~15
+- **Link**: https://github.com/finkregh/renovate-docker-operator
+- **Contact**: @finkregh

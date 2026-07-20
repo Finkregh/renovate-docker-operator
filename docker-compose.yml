@@ -16,7 +16,7 @@ services:
       ROP_CONTAINER_NETWORK: "renovate"
 
       # Optional overrides (uncomment to diverge from Dockerfile defaults)
-      # ROP_PLATFORM: "forgejo"
+      # RENOVATE_PLATFORM: "forgejo"
       # ROP_IMAGE: "renovate/renovate:latest"
       # ROP_CRON_SCHEDULE: "0 */4 * * *"
       # ROP_PARALLELISM: "2"

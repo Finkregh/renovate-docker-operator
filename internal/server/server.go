@@ -19,6 +19,7 @@ import (
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/config"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/api"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/discovery"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/executor"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/scheduler"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/statestore"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/webhook"
@@ -29,6 +30,7 @@ type Server struct {
 	store          statestore.RenovateJobManager
 	discovery      *discovery.Agent
 	scheduler      *scheduler.Scheduler
+	executor       *executor.DockerExecutor
 	webhook        *webhook.Handler
 	logger         *slog.Logger
 	server         *http.Server
@@ -47,6 +49,7 @@ func New(
 	store statestore.RenovateJobManager,
 	disc *discovery.Agent,
 	sched *scheduler.Scheduler,
+	exec *executor.DockerExecutor,
 	logger *slog.Logger,
 	version string,
 	maxRequestBody int64,
@@ -56,6 +59,7 @@ func New(
 		store:          store,
 		discovery:      disc,
 		scheduler:      sched,
+		executor:       exec,
 		webhook:        wh,
 		logger:         logger,
 		version:        version,
@@ -84,6 +88,7 @@ func (s *Server) Start() {
 	apiSub.HandleFunc("/renovate/all", s.runRenovateForAllProjects).Methods("POST")
 	apiSub.HandleFunc("/renovate/cancel", s.cancelRenovateForProject).Methods("POST")
 	apiSub.HandleFunc("/logs", s.getRenovateJobLogs).Methods("GET")
+	apiSub.HandleFunc("/logs/live", s.getLiveRenovateJobLogs).Methods("GET")
 	apiSub.HandleFunc("/discovery/start", s.runDiscovery).Methods("POST")
 	apiSub.HandleFunc("/executionOptions", s.updateExecutionOptions).Methods("POST")
 
@@ -140,6 +145,9 @@ type RenovateJobInfo struct {
 	ExecutionOptions *api.RenovateExecutionOptions      `json:"executionOptions,omitempty"`
 	DebugMode        *api.DebugModeInfo                 `json:"debugMode,omitempty"`
 	WebhookEnabled   bool                               `json:"webhookEnabled"`
+	DiscoveryStatus  string                             `json:"discoveryStatus"`
+	DiscoveryStarted *time.Time                         `json:"discoveryStarted,omitempty"`
+	DiscoveryError   string                             `json:"discoveryError,omitempty"`
 }
 
 // buildDebugModeInfo computes the effective debug mode state, considering
@@ -206,6 +214,19 @@ func (s *Server) getRenovateJobs(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 
+		// Look up discovery status from state store
+		var discStatus, discError string
+		var discStarted *time.Time
+		ds, _ := s.store.GetDiscoveryStatus(r.Context(), job.Name)
+		if ds != nil {
+			discStatus = ds.Status
+			discStarted = ds.StartedAt
+			discError = ds.Error
+		}
+		if discStatus == "" {
+			discStatus = "idle"
+		}
+
 		result = append(result, RenovateJobInfo{
 			Name:             job.Name,
 			CronExpression:   job.Spec.Schedule,
@@ -216,6 +237,9 @@ func (s *Server) getRenovateJobs(w http.ResponseWriter, r *http.Request) {
 			ExecutionOptions: job.Status.ExecutionOptions,
 			DebugMode:        buildDebugModeInfo(job.Status.ExecutionOptions),
 			WebhookEnabled:   job.Spec.Webhook != nil && job.Spec.Webhook.Enabled,
+			DiscoveryStatus:  discStatus,
+			DiscoveryStarted: discStarted,
+			DiscoveryError:   discError,
 		})
 	}
 
@@ -389,6 +413,72 @@ func (s *Server) getRenovateJobLogs(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// getLiveRenovateJobLogs streams live container logs via SSE.
+// It disables the server's WriteTimeout to allow indefinite streaming.
+func (s *Server) getLiveRenovateJobLogs(w http.ResponseWriter, r *http.Request) {
+	project := r.URL.Query().Get("project")
+	if project == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing project parameter"})
+		return
+	}
+
+	containerID, ok := s.executor.GetRunningContainerID(project)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "no running container for project"})
+		return
+	}
+
+	// Disable WriteTimeout so the SSE connection is not killed after 60s.
+	rc := http.NewResponseController(w)
+	if err := rc.SetWriteDeadline(time.Time{}); err != nil {
+		s.logger.Warn("failed to disable write deadline for live logs", "error", err)
+	}
+
+	// Set SSE headers.
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	stream, err := s.executor.StreamContainerLogs(r.Context(), containerID)
+	if err != nil {
+		s.logger.Error("failed to start live log stream", "project", project, "error", err)
+		_, _ = fmt.Fprint(w, "event: error\ndata: {\"error\":\"failed to start stream\"}\n\n")
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		return
+	}
+	defer func() { _ = stream.Close() }()
+
+	flusher, _ := w.(http.Flusher)
+
+	scanner := bufio.NewScanner(stream)
+	scanner.Buffer(make([]byte, 1<<20), 1<<20)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || !json.Valid([]byte(line)) {
+			continue
+		}
+		if _, err := fmt.Fprintf(w, "data: %s\n\n", line); err != nil {
+			// Client disconnected.
+			return
+		}
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		s.logger.Error("error reading live log stream", "project", project, "error", err)
+	}
+
+	_, _ = fmt.Fprint(w, "event: done\ndata: {}\n\n")
+	if flusher != nil {
+		flusher.Flush()
+	}
+}
+
 func (s *Server) runDiscovery(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, s.maxRequestBody)
 	var params struct {
@@ -414,13 +504,17 @@ func (s *Server) runDiscovery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := s.discovery.RunDiscovery(r.Context(), job); err != nil {
-		s.logger.Error("failed to run discovery", "job", params.RenovateJob, "error", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "discovery failed"})
+	if err := s.discovery.RunDiscoveryAsync(r.Context(), job); err != nil {
+		if errors.Is(err, executor.ErrDiscoveryAlreadyRunning) {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": "discovery is already running"})
+			return
+		}
+		s.logger.Error("failed to start async discovery", "job", params.RenovateJob, "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to start discovery"})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"message": "discovery started"})
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "started"})
 }
 
 func (s *Server) updateExecutionOptions(w http.ResponseWriter, r *http.Request) {

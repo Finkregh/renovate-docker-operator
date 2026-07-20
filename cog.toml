@@ -18,6 +18,7 @@ docs = { bump_patch = true }
 style = { bump_patch = true }
 perf = { bump_patch = true }
 ci = { bump_patch = true }
+ui = { bump_minor = true }
 
 # Changelog configuration
 [changelog]

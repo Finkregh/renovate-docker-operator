@@ -71,6 +71,29 @@
         }
       };
 
+      function TimeAgo({ timestamp, className }) {
+        if (!timestamp)
+          return React.createElement("span", { className }, "Never");
+        const date = new Date(timestamp);
+        const iso = date.toISOString();
+        const tzOffset = -date.getTimezoneOffset();
+        const sign = tzOffset >= 0 ? "+" : "-";
+        const pad = (n) => String(Math.abs(n)).padStart(2, "0");
+        const tz = `${sign}${pad(Math.floor(Math.abs(tzOffset) / 60))}:${pad(Math.abs(tzOffset) % 60)}`;
+        const y = date.getFullYear();
+        const mo = pad(date.getMonth() + 1);
+        const d = pad(date.getDate());
+        const h = pad(date.getHours());
+        const mi = pad(date.getMinutes());
+        const s = pad(date.getSeconds());
+        const rfc3339 = `${y}-${mo}-${d} ${h}:${mi}:${s}${tz}`;
+        return React.createElement(
+          "time",
+          { dateTime: iso, title: rfc3339, className },
+          formatTimeAgo(timestamp),
+        );
+      }
+
       const formatLocalTime = (timestamp) => {
         if (!timestamp) return "Never";
         const date = new Date(timestamp);
@@ -420,6 +443,7 @@
                     className="w-5 h-5"
                     fill="currentColor"
                     viewBox="0 0 20 20"
+                    aria-hidden="true"
                   >
                     <path
                       fillRule="evenodd"
@@ -433,6 +457,7 @@
                     className="w-5 h-5"
                     fill="currentColor"
                     viewBox="0 0 20 20"
+                    aria-hidden="true"
                   >
                     <path
                       fillRule="evenodd"
@@ -446,6 +471,7 @@
                     className="w-5 h-5"
                     fill="currentColor"
                     viewBox="0 0 20 20"
+                    aria-hidden="true"
                   >
                     <path
                       fillRule="evenodd"
@@ -512,6 +538,550 @@
         return fetch(withBase(url), options);
       };
 
+      const getBadgeClass = (status) => {
+        const base =
+          "inline-flex items-center rounded-full px-3 py-1 text-sm font-medium whitespace-nowrap";
+        switch (status) {
+          case "scheduled":
+            return `${base} bg-warning/10 text-warning`;
+          case "running":
+            return `${base} bg-primary/10 text-primary`;
+          case "completed":
+            return `${base} bg-success/10 text-success`;
+          case "failed":
+            return `${base} bg-error/10 text-error`;
+          case "cancelled":
+            return `${base} bg-gray-200 text-gray-600 dark:bg-slate-700 dark:text-slate-300`;
+          default:
+            return `${base} bg-primary/10 text-primary`;
+        }
+      };
+
+      // --- Extracted top-level components (B1 performance fix) ---
+
+      const ProjectRow = React.memo(
+        function ProjectRow({
+          project,
+          jobName,
+          platform,
+          platformEndpoint,
+          isProjectExpanded,
+          isIssueExpanded,
+          onToggleProjectExpanded,
+          onToggleIssueExpanded,
+          onTriggerRenovate,
+          onCancelRenovate,
+        }) {
+          const { containerRef, tooltipProps, tooltipElement } =
+            useTooltip(project);
+
+          return (
+            <>
+              <tr
+                ref={containerRef}
+                {...tooltipProps}
+                className={`hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors ${project.renovateResultStatus && project.renovateResultStatus !== "done" ? "bg-amber-50/60 dark:bg-amber-900/10 shadow-[inset_4px_0_0_0_rgb(251_191_36)] dark:shadow-[inset_4px_0_0_0_rgb(245_158_11)]" : ""}`}
+              >
+                <td className="px-3 xl:px-6 py-4">
+                  <div className="flex items-center gap-2 w-full justify-between">
+                    <span
+                      className={`font-medium min-w-0 break-words ${project.renovateResultStatus && project.renovateResultStatus !== "done" ? "text-gray-500 dark:text-slate-400" : "text-gray-900 dark:text-slate-100"}`}
+                    >
+                      {project.name}
+                    </span>
+                    {project.renovateResultStatus &&
+                      project.renovateResultStatus !== "done" && (
+                        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap shrink-0 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 ring-1 ring-amber-300 dark:ring-amber-700">
+                          {project.renovateResultStatus}
+                        </span>
+                      )}
+                  </div>
+                </td>
+                <td className="px-3 xl:px-6 py-4">
+                  <span className={getBadgeClass(project.status)}>
+                    {project.status || "-"}
+                  </span>
+                </td>
+                <td className="px-3 xl:px-6 py-4" data-no-tooltip="true">
+                  <PRActivityBadges
+                    prActivity={project.prActivity}
+                    expanded={isProjectExpanded}
+                    onToggle={() => onToggleProjectExpanded(project.name)}
+                    projectName={project.name}
+                  />
+                </td>
+                <td className="px-3 xl:px-6 py-4" data-no-tooltip="true">
+                  <IssuesBadges
+                    logIssues={project.logIssues}
+                    expanded={isIssueExpanded}
+                    onToggle={() => onToggleIssueExpanded(project.name)}
+                    projectName={project.name}
+                  />
+                </td>
+                <td className="px-3 xl:px-6 py-4">
+                  <TimeAgo
+                    timestamp={project.lastRun}
+                    className="text-sm text-gray-600 dark:text-slate-300"
+                  />
+                </td>
+                <td className="px-3 xl:px-6 py-4" data-no-tooltip="true">
+                  <div className="flex items-center gap-2">
+                    {(() => {
+                      const dashboardUrl = buildDashboardUrl(
+                        platform,
+                        platformEndpoint,
+                        project.name,
+                      );
+                      return dashboardUrl ? (
+                        <a
+                          href={dashboardUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-sm text-primary hover:text-primary-hover font-medium"
+                          aria-label={`View Dependency Dashboard for ${project.name}`}
+                          title={`Dependency Dashboard for ${project.name}`}
+                        >
+                          <svg
+                            className="w-3.5 h-3.5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                            aria-hidden="true"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"
+                            />
+                          </svg>
+                        </a>
+                      ) : null;
+                    })()}
+                    {(() => {
+                      const prUrl = buildPRUrl(
+                        platform,
+                        platformEndpoint,
+                        project.name,
+                      );
+                      return prUrl ? (
+                        <a
+                          href={prUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-sm text-primary hover:text-primary-hover font-medium"
+                          aria-label={`View open PRs/MRs for ${project.name}`}
+                          title={`Open PRs/MRs for ${project.name}`}
+                        >
+                          <svg
+                            className="w-3.5 h-3.5"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                            aria-hidden="true"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                            />
+                          </svg>
+                        </a>
+                      ) : null;
+                    })()}
+                    {(() => {
+                      const prUrl = buildPRUrl(
+                        platform,
+                        platformEndpoint,
+                        project.name,
+                      );
+                      const dashboardUrl = buildDashboardUrl(
+                        platform,
+                        platformEndpoint,
+                        project.name,
+                      );
+                      return !prUrl && !dashboardUrl ? (
+                        <span className="text-gray-400 dark:text-slate-500 text-sm">
+                          -
+                        </span>
+                      ) : null;
+                    })()}
+                  </div>
+                </td>
+                <td
+                  className="px-3 xl:px-6 py-4 text-right"
+                  data-no-tooltip="true"
+                >
+                  <div
+                    className="flex items-center justify-end gap-2"
+                    role="group"
+                    aria-label={`Actions for ${project.name}`}
+                  >
+                    <ActionButton
+                      project={project}
+                      onTrigger={() => onTriggerRenovate(project)}
+                      onCancel={() => onCancelRenovate(project)}
+                      width="w-[100px]"
+                    />
+                    <a
+                      href={`${BASE}/logs?renovate=${encodeURIComponent(jobName)}&project=${encodeURIComponent(project.name)}${project.status === "running" ? "&source=live" : ""}`}
+                      target="_blank"
+                      className="relative bg-gray-600 hover:bg-gray-700 text-white px-3 py-1.5 rounded-lg font-semibold text-[0.813rem] shadow-sm hover:shadow-md transition-all inline-block min-w-[60px] text-center"
+                      aria-label={`View logs for ${project.name}`}
+                    >
+                      Logs
+                      {project.status === "running" && (
+                        <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-success"></span>
+                        </span>
+                      )}
+                    </a>
+                  </div>
+                </td>
+              </tr>
+              {isProjectExpanded && project.prActivity && (
+                <PRDetailRow
+                  prActivity={project.prActivity}
+                  projectName={project.name}
+                  platform={platform}
+                  platformEndpoint={platformEndpoint}
+                />
+              )}
+              {isIssueExpanded && project.logIssues && (
+                <IssueDetailRow
+                  logIssues={project.logIssues}
+                  projectName={project.name}
+                  jobName={jobName}
+                />
+              )}
+              {tooltipElement}
+            </>
+          );
+        },
+        (prev, next) => {
+          return (
+            prev.project === next.project &&
+            prev.isProjectExpanded === next.isProjectExpanded &&
+            prev.isIssueExpanded === next.isIssueExpanded &&
+            prev.jobName === next.jobName
+          );
+        },
+      );
+
+      const ProjectCard = React.memo(
+        function ProjectCard({
+          project,
+          jobName,
+          platform,
+          platformEndpoint,
+          isProjectExpanded,
+          isIssueExpanded,
+          onToggleProjectExpanded,
+          onToggleIssueExpanded,
+          onTriggerRenovate,
+          onCancelRenovate,
+        }) {
+          const { containerRef, tooltipProps, tooltipElement } =
+            useTooltip(project);
+
+          return (
+            <>
+              <article
+                ref={containerRef}
+                {...tooltipProps}
+                className={`p-4 space-y-3 ${project.renovateResultStatus && project.renovateResultStatus !== "done" ? "bg-amber-50/60 dark:bg-amber-900/10 border-l-4 border-amber-400 dark:border-amber-500" : ""}`}
+                aria-label={project.name}
+              >
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3
+                        className={`font-medium text-base ${project.renovateResultStatus && project.renovateResultStatus !== "done" ? "text-gray-500 dark:text-slate-400" : "text-gray-900 dark:text-slate-100"}`}
+                      >
+                        {project.name}
+                      </h3>
+                      {project.renovateResultStatus &&
+                        project.renovateResultStatus !== "done" && (
+                          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap shrink-0 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 ring-1 ring-amber-300 dark:ring-amber-700">
+                            {project.renovateResultStatus}
+                          </span>
+                        )}
+                    </div>
+                    <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
+                      Last run: <TimeAgo timestamp={project.lastRun} />
+                    </p>
+                  </div>
+                  <span className={`ml-2 ${getBadgeClass(project.status)}`}>
+                    {project.status || "-"}
+                  </span>
+                </div>
+                {/* PR Activity section */}
+                {project.prActivity?.prs?.length > 0 && (
+                  <div
+                    className="flex items-center gap-2"
+                    data-no-tooltip="true"
+                  >
+                    <span className="text-xs text-gray-500 dark:text-slate-400 font-medium">
+                      Activity:
+                    </span>
+                    <PRActivityBadges
+                      prActivity={project.prActivity}
+                      expanded={isProjectExpanded}
+                      onToggle={() => onToggleProjectExpanded(project.name)}
+                      projectName={project.name}
+                    />
+                  </div>
+                )}
+                {isProjectExpanded &&
+                  project.prActivity &&
+                  project.prActivity.prs &&
+                  project.prActivity.prs.length > 0 && (
+                    <div
+                      id={`pr-details-${safeId(project.name)}`}
+                      className="pl-2 border-l-2 border-gray-200 dark:border-slate-600 max-h-48 overflow-y-auto"
+                    >
+                      <div className="space-y-1.5">
+                        {project.prActivity.prs.map((pr, idx) => {
+                          const actionClass = prActionBadgeClass(pr.action);
+                          const prUrl = buildSinglePRUrl(
+                            platform,
+                            platformEndpoint,
+                            project.name,
+                            pr.number,
+                          );
+                          return (
+                            <div
+                              key={idx}
+                              className="flex items-center gap-2 text-sm"
+                            >
+                              <span className={actionClass}>{pr.action}</span>
+                              {prUrl ? (
+                                <a
+                                  href={prUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-primary hover:text-primary-hover hover:underline truncate text-xs"
+                                  title={pr.title || prUrl}
+                                >
+                                  {pr.title || prUrl}
+                                </a>
+                              ) : (
+                                <span
+                                  className="text-gray-700 dark:text-slate-300 truncate text-xs"
+                                  title={pr.title}
+                                >
+                                  {pr.title || "Untitled PR"}
+                                </span>
+                              )}
+                              {pr.number && prUrl && (
+                                <a
+                                  href={prUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-gray-400 dark:text-slate-500 hover:text-primary hover:dark:text-primary-hover text-xs flex-shrink-0"
+                                >
+                                  #{pr.number}
+                                </a>
+                              )}
+                              {pr.number && !prUrl && (
+                                <span className="text-gray-400 dark:text-slate-500 text-xs flex-shrink-0">
+                                  #{pr.number}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {project.prActivity.truncated && (
+                          <div className="text-xs text-gray-400 dark:text-slate-500 italic mt-1">
+                            Some PRs omitted (list truncated)
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                {/* Issues section */}
+                {(project.logIssues?.warnCount > 0 ||
+                  project.logIssues?.errorCount > 0) && (
+                  <div
+                    className="flex items-center gap-2"
+                    data-no-tooltip="true"
+                  >
+                    <span className="text-xs text-gray-500 dark:text-slate-400 font-medium">
+                      Issues:
+                    </span>
+                    <IssuesBadges
+                      logIssues={project.logIssues}
+                      expanded={isIssueExpanded}
+                      onToggle={() => onToggleIssueExpanded(project.name)}
+                      projectName={project.name}
+                    />
+                  </div>
+                )}
+                {isIssueExpanded &&
+                  project.logIssues &&
+                  project.logIssues.issues &&
+                  project.logIssues.issues.length > 0 && (
+                    <div
+                      id={`issue-details-${safeId(project.name)}`}
+                      className="pl-2 border-l-2 border-amber-300 dark:border-amber-600 max-h-48 overflow-y-auto"
+                    >
+                      <div className="space-y-1.5">
+                        {project.logIssues.issues.map((issue, idx) => (
+                          <a
+                            key={idx}
+                            href={issueLogsHref(
+                              jobName,
+                              project.name,
+                              issue.level,
+                            )}
+                            target="_blank"
+                            rel="noopener"
+                            className="group flex items-start gap-2 text-sm rounded-md hover:bg-amber-50 dark:hover:bg-amber-900/20 -mx-1 px-1 py-0.5 transition-colors"
+                            title="Open full message in logs"
+                          >
+                            <span
+                              className={`flex-shrink-0 ${issueLevelBadgeClass(issue.level)}`}
+                            >
+                              {issue.level >= 50 ? "error" : "warn"}
+                            </span>
+                            <span className="text-gray-700 dark:text-slate-300 break-all text-xs">
+                              {displayIssueMessage(issue.message)}
+                              <span className="inline-flex items-center gap-0.5 ml-1.5 text-primary hover:underline whitespace-nowrap">
+                                View in logs
+                                <svg
+                                  className="w-3 h-3"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  viewBox="0 0 24 24"
+                                  aria-hidden="true"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                                  />
+                                </svg>
+                              </span>
+                            </span>
+                          </a>
+                        ))}
+                        {project.logIssues.truncated && (
+                          <div className="text-xs text-gray-400 dark:text-slate-500 italic mt-1">
+                            Some issues omitted (list truncated)
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                <div
+                  className="flex gap-2 flex-wrap"
+                  data-no-tooltip="true"
+                  role="group"
+                  aria-label={`Actions for ${project.name}`}
+                >
+                  <ActionButton
+                    project={project}
+                    onTrigger={() => onTriggerRenovate(project)}
+                    onCancel={() => onCancelRenovate(project)}
+                    width="w-[110px]"
+                  />
+                  <a
+                    href={`${BASE}/logs?renovate=${encodeURIComponent(jobName)}&project=${encodeURIComponent(project.name)}${project.status === "running" ? "&source=live" : ""}`}
+                    target="_blank"
+                    className="relative bg-gray-600 hover:bg-gray-700 text-white px-3 py-1.5 rounded-lg font-semibold text-[0.813rem] shadow-sm hover:shadow-md transition-all inline-block w-[70px] text-center"
+                    aria-label={`View logs for ${project.name}`}
+                  >
+                    Logs
+                    {project.status === "running" && (
+                      <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-success"></span>
+                      </span>
+                    )}
+                  </a>
+                  {(() => {
+                    const dashboardUrl = buildDashboardUrl(
+                      platform,
+                      platformEndpoint,
+                      project.name,
+                    );
+                    return dashboardUrl ? (
+                      <a
+                        href={dashboardUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-200 px-3 py-1.5 rounded-lg font-semibold text-[0.813rem] shadow-sm hover:shadow-md transition-all"
+                        aria-label={`View Dependency Dashboard for ${project.name}`}
+                        title={`Dependency Dashboard for ${project.name}`}
+                      >
+                        <svg
+                          className="w-3.5 h-3.5"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                          aria-hidden="true"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"
+                          />
+                        </svg>
+                      </a>
+                    ) : null;
+                  })()}
+                  {(() => {
+                    const prUrl = buildPRUrl(
+                      platform,
+                      platformEndpoint,
+                      project.name,
+                    );
+                    return prUrl ? (
+                      <a
+                        href={prUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-200 px-3 py-1.5 rounded-lg font-semibold text-[0.813rem] shadow-sm hover:shadow-md transition-all"
+                        aria-label={`View open PRs/MRs for ${project.name}`}
+                        title={`Open PRs/MRs for ${project.name}`}
+                      >
+                        <svg
+                          className="w-3.5 h-3.5"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                          aria-hidden="true"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                          />
+                        </svg>
+                      </a>
+                    ) : null;
+                  })()}
+                </div>
+              </article>
+              {tooltipElement}
+            </>
+          );
+        },
+        (prev, next) => {
+          return (
+            prev.project === next.project &&
+            prev.isProjectExpanded === next.isProjectExpanded &&
+            prev.isIssueExpanded === next.isIssueExpanded &&
+            prev.jobName === next.jobName
+          );
+        },
+      );
+
       function App() {
         const [jobs, setJobs] = useState([]);
         const [loading, setLoading] = useState(true);
@@ -530,6 +1100,8 @@
         const [toasts, setToasts] = useState([]);
         const nextToastIdRef = useRef(0);
         const hasLoadedOnce = useRef(false);
+        const lastRawRef = useRef(null);
+        const prevDiscoveryStatusRef = useRef({});
         const [authInfo, setAuthInfo] = useState({ enabled: false });
         const STAT_FILTER_LABELS = {
           failed: "Failed",
@@ -596,34 +1168,238 @@
           persistStatFilter(null);
         }, []);
 
-        const filteredJobs = useMemo(() => {
-          if (!selectedStatFilter) {
-            return jobs;
+        // Single-job model: always access jobs[0]
+        const job = jobs[0] || null;
+
+        const filteredProjects = useMemo(() => {
+          const projects = job?.projects || [];
+          if (!selectedStatFilter) return projects;
+          return projects.filter((project) =>
+            projectMatchesStatFilter(project, selectedStatFilter),
+          );
+        }, [job, selectedStatFilter]);
+
+        const filteredProjectCount = filteredProjects.length;
+
+        // Hoisted from former JobCard component
+        const [sortConfig, setSortConfig] = useState(() => {
+          try {
+            const stored = localStorage.getItem("sortConfig");
+            if (stored) {
+              const parsed = JSON.parse(stored);
+              if (parsed.key && parsed.direction) return parsed;
+            }
+          } catch {}
+          return { key: "status", direction: "asc" };
+        });
+        const STATUS_FILTERS = ["Onboarding Closed", "Disabled", "No Config"];
+        const jobKey = job?.name || "default";
+        const [hiddenStatuses, setHiddenStatuses] = useState(() => {
+          try {
+            const stored = JSON.parse(
+              localStorage.getItem(
+                `hiddenStatuses:${job?.name || "default"}`,
+              ) || "[]",
+            );
+            return Array.isArray(stored) ? stored : [];
+          } catch {
+            return [];
+          }
+        });
+        const toggleStatusFilter = (status) => {
+          setHiddenStatuses((prev) => {
+            const next = prev.includes(status)
+              ? prev.filter((s) => s !== status)
+              : [...prev, status];
+            try {
+              localStorage.setItem(
+                `hiddenStatuses:${jobKey}`,
+                JSON.stringify(next),
+              );
+            } catch {}
+            return next;
+          });
+        };
+        const [hideNoPRs, setHideNoPRs] = useState(() => {
+          try {
+            return (
+              localStorage.getItem(`hideNoPRs:${job?.name || "default"}`) ===
+              "true"
+            );
+          } catch {
+            return false;
+          }
+        });
+        const toggleHideNoPRs = () =>
+          setHideNoPRs((prev) => {
+            const next = !prev;
+            try {
+              localStorage.setItem(`hideNoPRs:${jobKey}`, String(next));
+            } catch {}
+            return next;
+          });
+        const [hideNoIssues, setHideNoIssues] = useState(() => {
+          try {
+            return (
+              localStorage.getItem(`hideNoIssues:${job?.name || "default"}`) ===
+              "true"
+            );
+          } catch {
+            return false;
+          }
+        });
+        const toggleHideNoIssues = () =>
+          setHideNoIssues((prev) => {
+            const next = !prev;
+            try {
+              localStorage.setItem(`hideNoIssues:${jobKey}`, String(next));
+            } catch {}
+            return next;
+          });
+        const sortedProjects = useMemo(() => {
+          let sorted = getSortedProjects(filteredProjects, sortConfig);
+          if (hiddenStatuses.length > 0) {
+            sorted = sorted.filter(
+              (p) => !hiddenStatuses.includes(p.renovateResultStatus),
+            );
+          }
+          if (hideNoPRs) {
+            sorted = sorted.filter((p) => {
+              const pa = p.prActivity;
+              return (
+                pa &&
+                (pa.created || 0) +
+                  (pa.updated || 0) +
+                  (pa.unchanged || 0) +
+                  (pa.automerged || 0) >
+                  0
+              );
+            });
+          }
+          if (hideNoIssues) {
+            sorted = sorted.filter(
+              (p) =>
+                p.logIssues &&
+                (p.logIssues.warnCount > 0 || p.logIssues.errorCount > 0),
+            );
+          }
+          return sorted;
+        }, [
+          filteredProjects,
+          sortConfig,
+          hiddenStatuses,
+          hideNoPRs,
+          hideNoIssues,
+        ]);
+        const statusCounts = useMemo(() => {
+          const counts = {};
+          for (const s of STATUS_FILTERS) counts[s] = 0;
+          for (const p of job?.projects || []) {
+            if (STATUS_FILTERS.includes(p.renovateResultStatus))
+              counts[p.renovateResultStatus]++;
+          }
+          return counts;
+        }, [job?.projects]);
+        const [expandedProjects, setExpandedProjects] = useState(
+          () => new Set(),
+        );
+        const toggleProjectExpanded = (name) => {
+          setExpandedProjects((prev) => {
+            const next = new Set(prev);
+            if (next.has(name)) {
+              next.delete(name);
+            } else {
+              next.add(name);
+            }
+            return next;
+          });
+        };
+        const [expandedIssues, setExpandedIssues] = useState(() => new Set());
+        const toggleIssueExpanded = (name) => {
+          setExpandedIssues((prev) => {
+            const next = new Set(prev);
+            if (next.has(name)) {
+              next.delete(name);
+            } else {
+              next.add(name);
+            }
+            return next;
+          });
+        };
+        const [showOptions, setShowOptions] = useState(false);
+        const [optionsPos, setOptionsPos] = useState({ top: 0, right: 0 });
+        const optionsBtnRef = useRef(null);
+        const [debugOption, setDebugOption] = useState(
+          job?.debugMode?.enabled ?? job?.executionOptions?.debug ?? true,
+        );
+        const [webhookOption, setWebhookOption] = useState(
+          job?.webhookEnabled ?? false,
+        );
+
+        const handleSort = (key) => {
+          let direction = "asc";
+          if (sortConfig.key === key && sortConfig.direction === "asc") {
+            direction = "desc";
+          }
+          const next = { key, direction };
+          setSortConfig(next);
+          try {
+            localStorage.setItem("sortConfig", JSON.stringify(next));
+          } catch {}
+        };
+
+        const SortIcon = ({ columnKey }) => {
+          if (sortConfig.key !== columnKey) {
+            return (
+              <svg
+                className="w-4 h-4 text-gray-400"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"
+                />
+              </svg>
+            );
           }
 
-          return jobs
-            .map((job) => {
-              const projects = (
-                Array.isArray(job.projects) ? job.projects : []
-              ).filter((project) =>
-                projectMatchesStatFilter(project, selectedStatFilter),
-              );
-
-              return {
-                ...job,
-                projects,
-              };
-            })
-            .filter((job) => job.projects.length > 0);
-        }, [jobs, selectedStatFilter]);
-
-        const filteredProjectCount = useMemo(() => {
-          return filteredJobs.reduce(
-            (total, job) =>
-              total + (Array.isArray(job.projects) ? job.projects.length : 0),
-            0,
+          return sortConfig.direction === "asc" ? (
+            <svg
+              className="w-4 h-4 text-primary"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M5 15l7-7 7 7"
+              />
+            </svg>
+          ) : (
+            <svg
+              className="w-4 h-4 text-primary"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M19 9l-7 7-7-7"
+              />
+            </svg>
           );
-        }, [filteredJobs]);
+        };
 
         const addToast = useCallback(
           (type, title, message = "", duration = 5000) => {
@@ -686,7 +1462,11 @@
             if (!response.ok)
               throw new Error(`HTTP ${response.status}: Failed to fetch jobs`);
 
-            const data = await response.json();
+            const raw = await response.text();
+            if (raw === lastRawRef.current) return; // No server-side change — skip setState
+            lastRawRef.current = raw;
+
+            const data = JSON.parse(raw);
             if (typeof data !== "object" || data === null)
               throw new Error("Invalid response format");
 
@@ -702,6 +1482,30 @@
                   project.cancelling = false;
                 });
               }
+
+              // Detect discovery status transitions
+              const prevStatus = prevDiscoveryStatusRef.current[job.name];
+              if (
+                prevStatus === "running" &&
+                job.discoveryStatus === "completed"
+              ) {
+                addToast(
+                  "success",
+                  "Discovery Completed",
+                  `Discovery for ${job.name} finished successfully`,
+                );
+              } else if (
+                prevStatus === "running" &&
+                job.discoveryStatus === "failed"
+              ) {
+                addToast(
+                  "error",
+                  "Discovery Failed",
+                  job.discoveryError ||
+                    "Discovery failed with an unknown error",
+                );
+              }
+              prevDiscoveryStatusRef.current[job.name] = job.discoveryStatus;
             }
 
             hasLoadedOnce.current = true;
@@ -721,9 +1525,7 @@
 
           setJobs((prev) =>
             prev.map((j) =>
-              j.name === job.name && j.namespace === job.namespace
-                ? { ...j, discoveryRunning: true }
-                : j,
+              j.name === job.name ? { ...j, discoveryRunning: true } : j,
             ),
           );
 
@@ -733,7 +1535,6 @@
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 renovateJob: job.name,
-                namespace: job.namespace,
               }),
             });
 
@@ -743,6 +1544,12 @@
                 "Discovery Started",
                 `Discovery job for ${job.name} has been triggered`,
               );
+            } else if (response.status === 409) {
+              addToast(
+                "info",
+                "Discovery Already Running",
+                `Discovery for ${job.name} is already in progress`,
+              );
             } else {
               const errorText = await response.text();
               throw new Error(errorText || "Failed to start discovery");
@@ -751,9 +1558,7 @@
             console.error("Error running discovery:", err);
             setJobs((prev) =>
               prev.map((j) =>
-                j.name === job.name && j.namespace === job.namespace
-                  ? { ...j, discoveryRunning: false }
-                  : j,
+                j.name === job.name ? { ...j, discoveryRunning: false } : j,
               ),
             );
             addToast("error", "Discovery Failed", err.message);
@@ -765,7 +1570,7 @@
 
           setJobs((prev) =>
             prev.map((j) => {
-              if (j.name === job.name && j.namespace === job.namespace) {
+              if (j.name === job.name) {
                 return {
                   ...j,
                   projects: j.projects.map((p) =>
@@ -783,7 +1588,6 @@
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 renovateJob: job.name,
-                namespace: job.namespace,
                 project: project.name,
               }),
             });
@@ -811,7 +1615,7 @@
 
           setJobs((prev) =>
             prev.map((j) => {
-              if (j.name === job.name && j.namespace === job.namespace) {
+              if (j.name === job.name) {
                 return {
                   ...j,
                   projects: j.projects.map((p) =>
@@ -829,7 +1633,6 @@
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 renovateJob: job.name,
-                namespace: job.namespace,
                 project: project.name,
               }),
             });
@@ -852,14 +1655,27 @@
           }
         };
 
+        // Stable callbacks for extracted ProjectRow/ProjectCard (B1 perf fix)
+        const handleTriggerRenovate = useCallback(
+          (project) => {
+            triggerRenovate(job, project);
+          },
+          [job],
+        );
+
+        const handleCancelRenovate = useCallback(
+          (project) => {
+            cancelRenovate(job, project);
+          },
+          [job],
+        );
+
         const triggerAllRenovate = async (job) => {
           if (job.triggeringAll) return;
 
           setJobs((prev) =>
             prev.map((j) =>
-              j.name === job.name && j.namespace === job.namespace
-                ? { ...j, triggeringAll: true }
-                : j,
+              j.name === job.name ? { ...j, triggeringAll: true } : j,
             ),
           );
 
@@ -869,7 +1685,6 @@
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 renovateJob: job.name,
-                namespace: job.namespace,
               }),
             });
 
@@ -889,9 +1704,7 @@
           } finally {
             setJobs((prev) =>
               prev.map((j) =>
-                j.name === job.name && j.namespace === job.namespace
-                  ? { ...j, triggeringAll: false }
-                  : j,
+                j.name === job.name ? { ...j, triggeringAll: false } : j,
               ),
             );
             loadJobs();
@@ -905,7 +1718,6 @@
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 renovateJob: job.name,
-                namespace: job.namespace,
                 debug: options.debug,
                 webhookEnabled: options.webhookEnabled,
               }),
@@ -913,7 +1725,7 @@
             if (response.ok) {
               setJobs((prev) =>
                 prev.map((j) =>
-                  j.name === job.name && j.namespace === job.namespace
+                  j.name === job.name
                     ? {
                         ...j,
                         executionOptions: {
@@ -1027,23 +1839,81 @@
 
             <main className="flex-1 max-w-7xl mx-auto w-full px-3 sm:px-6 lg:px-8 pb-6 sm:pb-8">
               {loading && jobs.length === 0 && (
-                <div className="space-y-6">
-                  <div className="bg-white dark:bg-slate-800 rounded-lg p-6 border border-gray-200 dark:border-slate-700 shadow-sm animate-pulse">
-                    <div className="h-8 bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 bg-[length:200%_100%] rounded-lg mb-4 skeleton-header"></div>
-                    <div className="flex flex-col gap-3">
-                      <div className="h-4 bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 bg-[length:200%_100%] rounded skeleton-line"></div>
-                      <div className="h-4 bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 bg-[length:200%_100%] rounded skeleton-line"></div>
-                      <div className="h-4 bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 bg-[length:200%_100%] rounded skeleton-line"></div>
+                <section
+                  aria-busy="true"
+                  aria-label="Loading projects"
+                  className="space-y-6"
+                >
+                  {/* Header metadata skeleton */}
+                  <div className="bg-white dark:bg-slate-800 rounded-lg p-4 sm:p-6 border border-gray-200 dark:border-slate-700 shadow-sm animate-pulse">
+                    <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+                      <div className="flex items-center gap-3">
+                        <div className="h-6 w-32 bg-gray-200 dark:bg-slate-700 rounded"></div>
+                        <div className="h-5 w-16 bg-gray-200 dark:bg-slate-700 rounded-full"></div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="h-8 w-28 bg-gray-200 dark:bg-slate-700 rounded-lg"></div>
+                        <div className="h-8 w-24 bg-gray-200 dark:bg-slate-700 rounded-lg"></div>
+                      </div>
+                    </div>
+                    <div className="h-px bg-gray-200 dark:bg-slate-700 mb-4"></div>
+
+                    {/* Desktop table skeleton */}
+                    <div className="hidden lg:block">
+                      {/* Table header */}
+                      <div className="flex items-center gap-4 px-3 xl:px-6 py-3 border-b border-gray-200 dark:border-slate-600">
+                        <div className="h-3 w-20 bg-gray-200 dark:bg-slate-700 rounded"></div>
+                        <div className="h-3 w-16 bg-gray-200 dark:bg-slate-700 rounded"></div>
+                        <div className="h-3 w-16 bg-gray-200 dark:bg-slate-700 rounded"></div>
+                        <div className="h-3 w-14 bg-gray-200 dark:bg-slate-700 rounded"></div>
+                        <div className="h-3 w-16 bg-gray-200 dark:bg-slate-700 rounded"></div>
+                        <div className="h-3 w-12 bg-gray-200 dark:bg-slate-700 rounded ml-auto"></div>
+                      </div>
+                      {/* Table rows */}
+                      {Array.from({ length: 8 }).map((_, i) => (
+                        <div
+                          key={i}
+                          className="flex items-center gap-4 px-3 xl:px-6 py-4 border-b border-gray-100 dark:border-slate-700/50"
+                        >
+                          <div
+                            className={`h-4 bg-gray-200 dark:bg-slate-700 rounded ${i % 3 === 0 ? "w-40" : i % 3 === 1 ? "w-32" : "w-36"}`}
+                          ></div>
+                          <div className="h-5 w-20 bg-gray-200 dark:bg-slate-700 rounded-full"></div>
+                          <div
+                            className={`h-5 bg-gray-200 dark:bg-slate-700 rounded-full ${i % 2 === 0 ? "w-24" : "w-16"}`}
+                          ></div>
+                          <div className="h-4 w-14 bg-gray-200 dark:bg-slate-700 rounded"></div>
+                          <div className="h-4 w-16 bg-gray-200 dark:bg-slate-700 rounded"></div>
+                          <div className="h-7 w-20 bg-gray-200 dark:bg-slate-700 rounded-lg ml-auto"></div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Mobile card skeleton */}
+                    <div className="lg:hidden space-y-3">
+                      {Array.from({ length: 6 }).map((_, i) => (
+                        <div
+                          key={i}
+                          className="p-4 border border-gray-100 dark:border-slate-700/50 rounded-lg"
+                        >
+                          <div className="flex items-start justify-between mb-3">
+                            <div>
+                              <div
+                                className={`h-4 bg-gray-200 dark:bg-slate-700 rounded mb-2 ${i % 3 === 0 ? "w-36" : i % 3 === 1 ? "w-28" : "w-32"}`}
+                              ></div>
+                              <div className="h-3 w-20 bg-gray-200 dark:bg-slate-700 rounded"></div>
+                            </div>
+                            <div className="h-5 w-20 bg-gray-200 dark:bg-slate-700 rounded-full"></div>
+                          </div>
+                          <div className="flex gap-2">
+                            <div className="h-7 w-24 bg-gray-200 dark:bg-slate-700 rounded-lg"></div>
+                            <div className="h-7 w-16 bg-gray-200 dark:bg-slate-700 rounded-lg"></div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                  <div className="bg-white dark:bg-slate-800 rounded-lg p-6 border border-gray-200 dark:border-slate-700 shadow-sm animate-pulse">
-                    <div className="h-8 bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 bg-[length:200%_100%] rounded-lg mb-4 skeleton-header"></div>
-                    <div className="flex flex-col gap-3">
-                      <div className="h-4 bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 bg-[length:200%_100%] rounded skeleton-line"></div>
-                      <div className="h-4 bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200 dark:from-slate-700 dark:via-slate-600 dark:to-slate-700 bg-[length:200%_100%] rounded skeleton-line"></div>
-                    </div>
-                  </div>
-                </div>
+                </section>
               )}
 
               {error && !loading && (
@@ -1077,81 +1947,494 @@
               )}
 
               {(!loading || jobs.length > 0) && (
-                <div className="space-y-6">
-                  {selectedStatFilter && (
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-lg border border-primary/20 bg-primary/5 dark:bg-primary/10 px-4 py-3">
-                      <p className="text-sm text-gray-700 dark:text-slate-300">
-                        Showing{" "}
-                        <span className="font-semibold text-primary">
-                          {filteredProjectCount}
-                        </span>{" "}
-                        matching project{filteredProjectCount === 1 ? "" : "s"}{" "}
-                        in {filteredJobs.length} job
-                        {filteredJobs.length === 1 ? "" : "s"} for{" "}
-                        <span className="font-semibold text-primary">
-                          {STAT_FILTER_LABELS[selectedStatFilter]}
-                        </span>
-                      </p>
-                      <button
-                        type="button"
-                        onClick={clearStatFilter}
-                        className="self-start sm:self-auto text-sm font-medium text-primary hover:text-primary-hover transition-colors"
-                      >
-                        Clear filter
-                      </button>
-                    </div>
-                  )}
-
-                  {filteredJobs.map((job) => (
-                    <JobCard
-                      key={`${job.name}-${job.namespace}`}
-                      job={job}
-                      onRunDiscovery={runDiscovery}
-                      onTriggerRenovate={triggerRenovate}
-                      onTriggerAllRenovate={triggerAllRenovate}
-                      onCancelRenovate={cancelRenovate}
-                      onSaveExecutionOptions={saveExecutionOptions}
-                    />
-                  ))}
-
-                  {filteredJobs.length === 0 && !loading && !error && (
-                    <div className="text-center py-12 bg-white dark:bg-slate-800 rounded-lg border border-gray-200 dark:border-slate-700 shadow-sm">
-                      <svg
-                        className="w-16 h-16 text-gray-400 mx-auto mb-4"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                        aria-hidden="true"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="2"
-                          d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"
-                        />
-                      </svg>
-                      <h3 className="text-lg font-semibold text-gray-700 dark:text-slate-300 mb-2">
-                        {selectedStatFilter
-                          ? "No jobs match this filter"
-                          : "No Renovate Jobs Found"}
-                      </h3>
-                      <p className="text-gray-500 dark:text-slate-400 mb-4">
-                        {selectedStatFilter
-                          ? `Try clearing the ${STAT_FILTER_LABELS[selectedStatFilter]} filter to see all jobs again.`
-                          : "Create a RenovateJob resource to get started."}
-                      </p>
-                      {selectedStatFilter && (
+                <section aria-labelledby="projects-heading">
+                  <h2 id="projects-heading" className="sr-only">
+                    Projects
+                  </h2>
+                  <div className="space-y-6">
+                    {selectedStatFilter && (
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-lg border border-primary/20 bg-primary/5 dark:bg-primary/10 px-4 py-3">
+                        <p className="text-sm text-gray-700 dark:text-slate-300">
+                          Showing{" "}
+                          <span className="font-semibold text-primary">
+                            {filteredProjectCount}
+                          </span>{" "}
+                          matching project
+                          {filteredProjectCount === 1 ? "" : "s"} for{" "}
+                          <span className="font-semibold text-primary">
+                            {STAT_FILTER_LABELS[selectedStatFilter]}
+                          </span>
+                        </p>
                         <button
                           type="button"
                           onClick={clearStatFilter}
-                          className="px-4 py-2 bg-primary hover:bg-primary-hover text-white rounded-lg transition-colors"
+                          className="self-start sm:self-auto text-sm font-medium text-primary hover:text-primary-hover transition-colors"
                         >
-                          Show all jobs
+                          Clear filter
                         </button>
-                      )}
-                    </div>
-                  )}
-                </div>
+                      </div>
+                    )}
+
+                    {job ? (
+                      <div className="bg-white dark:bg-slate-800 rounded-lg overflow-hidden border border-gray-200 dark:border-slate-700 shadow-sm">
+                        {/* Toolbar: schedule info + action buttons */}
+                        <div className="flex flex-col gap-3 sm:gap-4 p-3 sm:p-4 lg:p-6">
+                          <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-3 sm:gap-4">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <svg
+                                className="w-4 h-4 sm:w-5 sm:h-5 text-primary flex-shrink-0"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                                aria-hidden="true"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                                />
+                              </svg>
+                              <span className="text-xs sm:text-sm text-gray-600 dark:text-slate-300 font-medium flex-shrink-0">
+                                Schedule:
+                              </span>
+                              <span className="font-mono text-xs sm:text-sm font-semibold text-gray-900 dark:text-slate-100 truncate">
+                                {job.cronExpression || "Not set"}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-2 min-w-0">
+                              <svg
+                                className="w-4 h-4 sm:w-5 sm:h-5 text-primary flex-shrink-0"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                                aria-hidden="true"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M13 10V3L4 14h7v7l9-11h-7z"
+                                />
+                              </svg>
+                              <span className="text-xs sm:text-sm text-gray-600 dark:text-slate-300 font-medium flex-shrink-0">
+                                Next Run:
+                              </span>
+                              {job.nextSchedule ? (
+                                <Countdown nextSchedule={job.nextSchedule} />
+                              ) : (
+                                <span className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">
+                                  N/A
+                                </span>
+                              )}
+                            </div>
+
+                            <div
+                              className="flex items-center gap-2 sm:ml-auto"
+                              role="group"
+                              aria-label="Job actions"
+                            >
+                              <div className="relative flex-shrink-0">
+                                <button
+                                  ref={optionsBtnRef}
+                                  onClick={() => {
+                                    if (!showOptions && optionsBtnRef.current) {
+                                      const rect =
+                                        optionsBtnRef.current.getBoundingClientRect();
+                                      setOptionsPos({
+                                        top: rect.bottom + 4,
+                                        right: window.innerWidth - rect.right,
+                                      });
+                                    }
+                                    setShowOptions(!showOptions);
+                                  }}
+                                  className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
+                                  aria-label="Execution options"
+                                >
+                                  <svg
+                                    className="w-4 h-4 sm:w-5 sm:h-5"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    viewBox="0 0 24 24"
+                                    aria-hidden="true"
+                                  >
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+                                    />
+                                    <path
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      strokeWidth={2}
+                                      d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                                    />
+                                  </svg>
+                                </button>
+                                {showOptions && (
+                                  <>
+                                    <div
+                                      className="fixed inset-0 z-10"
+                                      onClick={() => setShowOptions(false)}
+                                    />
+                                    <div
+                                      style={{
+                                        top: optionsPos.top,
+                                        right: optionsPos.right,
+                                      }}
+                                      className="fixed z-50 w-60 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-gray-200 dark:border-slate-700 p-4"
+                                    >
+                                      <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-3">
+                                        Execution Options
+                                      </h3>
+                                      <label
+                                        className={`flex items-center gap-2 mb-3 ${job.debugMode?.envOverride ? "opacity-60" : "cursor-pointer"}`}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={
+                                            job.debugMode?.envOverride
+                                              ? job.debugMode.enabled
+                                              : debugOption
+                                          }
+                                          onChange={(e) =>
+                                            setDebugOption(e.target.checked)
+                                          }
+                                          disabled={
+                                            !!job.debugMode?.envOverride
+                                          }
+                                          className="w-4 h-4 rounded border-gray-300 accent-primary"
+                                        />
+                                        <span className="text-sm text-gray-700 dark:text-slate-300">
+                                          {job.debugMode?.envOverride
+                                            ? `Debug mode (set via envvar, ${job.debugMode.envOverride.name})`
+                                            : "Debug mode"}
+                                        </span>
+                                      </label>
+                                      <label className="flex items-center gap-2 mb-3 cursor-pointer">
+                                        <input
+                                          type="checkbox"
+                                          checked={webhookOption}
+                                          onChange={(e) =>
+                                            setWebhookOption(e.target.checked)
+                                          }
+                                          className="w-4 h-4 rounded border-gray-300 accent-primary"
+                                        />
+                                        <span className="text-sm text-gray-700 dark:text-slate-300">
+                                          Webhook enabled
+                                        </span>
+                                      </label>
+                                      <button
+                                        onClick={() => {
+                                          saveExecutionOptions(job, {
+                                            debug: debugOption,
+                                            webhookEnabled: webhookOption,
+                                          });
+                                          setShowOptions(false);
+                                        }}
+                                        className="w-full bg-primary hover:bg-primary-hover text-white px-3 py-2 rounded-lg text-sm font-semibold transition-colors"
+                                      >
+                                        Save
+                                      </button>
+                                      <div className="border-t border-gray-200 dark:border-slate-700 mt-3 pt-3">
+                                        <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-2">
+                                          Hide Projects
+                                        </h3>
+                                        {STATUS_FILTERS.map((status) => (
+                                          <label
+                                            key={status}
+                                            className="flex items-center gap-2 mb-1.5 cursor-pointer"
+                                          >
+                                            <input
+                                              type="checkbox"
+                                              checked={hiddenStatuses.includes(
+                                                status,
+                                              )}
+                                              onChange={() =>
+                                                toggleStatusFilter(status)
+                                              }
+                                              className="w-4 h-4 rounded border-gray-300 accent-primary"
+                                            />
+                                            <span className="text-sm text-gray-700 dark:text-slate-300">
+                                              {status}
+                                              {statusCounts[status] > 0
+                                                ? ` (${statusCounts[status]})`
+                                                : ""}
+                                            </span>
+                                          </label>
+                                        ))}
+                                        <label className="flex items-center gap-2 mb-1.5 cursor-pointer">
+                                          <input
+                                            type="checkbox"
+                                            checked={hideNoPRs}
+                                            onChange={toggleHideNoPRs}
+                                            className="w-4 h-4 rounded border-gray-300 accent-primary"
+                                          />
+                                          <span className="text-sm text-gray-700 dark:text-slate-300">
+                                            Without PRs
+                                          </span>
+                                        </label>
+                                        <label className="flex items-center gap-2 mb-1.5 cursor-pointer">
+                                          <input
+                                            type="checkbox"
+                                            checked={hideNoIssues}
+                                            onChange={toggleHideNoIssues}
+                                            className="w-4 h-4 rounded border-gray-300 accent-primary"
+                                          />
+                                          <span className="text-sm text-gray-700 dark:text-slate-300">
+                                            Without Issues
+                                          </span>
+                                        </label>
+                                      </div>
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+
+                              <button
+                                onClick={() => runDiscovery(job)}
+                                disabled={job.discoveryRunning}
+                                className="bg-primary hover:bg-primary-hover disabled:opacity-60 disabled:cursor-not-allowed text-white px-3 py-2 sm:px-4 sm:py-2 rounded-lg font-semibold text-xs sm:text-sm shadow-sm hover:shadow-md active:scale-98 transition-all flex items-center justify-center gap-2"
+                                title={
+                                  job.discoveryRunning
+                                    ? "Discovery is already in progress"
+                                    : `Run discovery for ${job.name}`
+                                }
+                                aria-label={
+                                  job.discoveryRunning
+                                    ? "Discovery running"
+                                    : `Run discovery for ${job.name}`
+                                }
+                              >
+                                <svg
+                                  className={`w-3 h-3 sm:w-4 sm:h-4 ${
+                                    job.discoveryRunning ? "animate-spin" : ""
+                                  }`}
+                                  fill="currentColor"
+                                  viewBox="0 0 20 20"
+                                  aria-hidden="true"
+                                >
+                                  <path
+                                    fillRule="evenodd"
+                                    d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z"
+                                    clipRule="evenodd"
+                                  />
+                                </svg>
+                                <span>
+                                  {job.discoveryRunning
+                                    ? "Running..."
+                                    : "Run Discovery"}
+                                </span>
+                              </button>
+
+                              <button
+                                onClick={() => triggerAllRenovate(job)}
+                                disabled={
+                                  job.triggeringAll ||
+                                  !job.projects ||
+                                  job.projects.length === 0
+                                }
+                                className="bg-primary hover:bg-primary-hover disabled:opacity-60 disabled:cursor-not-allowed text-white px-3 py-2 sm:px-4 sm:py-2 rounded-lg font-semibold text-xs sm:text-sm shadow-sm hover:shadow-md active:scale-98 transition-all flex items-center justify-center gap-2"
+                                aria-label={
+                                  job.triggeringAll
+                                    ? "Triggering all projects"
+                                    : `Trigger all projects for ${job.name}`
+                                }
+                              >
+                                <svg
+                                  className={`w-3 h-3 sm:w-4 sm:h-4 ${
+                                    job.triggeringAll ? "animate-spin" : ""
+                                  }`}
+                                  fill="currentColor"
+                                  viewBox="0 0 20 20"
+                                  aria-hidden="true"
+                                >
+                                  <path
+                                    fillRule="evenodd"
+                                    d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z"
+                                    clipRule="evenodd"
+                                  />
+                                </svg>
+                                <span>
+                                  {job.triggeringAll
+                                    ? "Triggering..."
+                                    : "Trigger All"}
+                                </span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Project table (desktop) */}
+                        <div className="border-t border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/50">
+                          <div className="hidden lg:block overflow-x-auto">
+                            <table className="w-full">
+                              <caption className="sr-only">
+                                Project status and actions
+                              </caption>
+                              <thead className="bg-white dark:bg-slate-700 border-b border-gray-200 dark:border-slate-600">
+                                <tr>
+                                  <th
+                                    className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-600 select-none"
+                                    onClick={() => handleSort("name")}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <span>Project</span>
+                                      <SortIcon columnKey="name" />
+                                    </div>
+                                  </th>
+                                  <th
+                                    className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-600 select-none"
+                                    onClick={() => handleSort("status")}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <span>Status</span>
+                                      <SortIcon columnKey="status" />
+                                    </div>
+                                  </th>
+                                  <th
+                                    className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-600 select-none"
+                                    onClick={() => handleSort("openPRs")}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <span>Activity</span>
+                                      <SortIcon columnKey="openPRs" />
+                                    </div>
+                                  </th>
+                                  <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider select-none">
+                                    Issues
+                                  </th>
+                                  <th
+                                    className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-600 select-none"
+                                    onClick={() => handleSort("lastRun")}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <span>Last Run</span>
+                                      <SortIcon columnKey="lastRun" />
+                                    </div>
+                                  </th>
+                                  <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider">
+                                    Links
+                                  </th>
+                                  <th className="px-3 xl:px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider">
+                                    Actions
+                                  </th>
+                                </tr>
+                              </thead>
+                              <tbody className="bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-slate-700">
+                                {sortedProjects.length > 0 ? (
+                                  sortedProjects.map((project) => (
+                                    <ProjectRow
+                                      key={project.name}
+                                      project={project}
+                                      jobName={job.name}
+                                      platform={job.platform}
+                                      platformEndpoint={job.platformEndpoint}
+                                      isProjectExpanded={expandedProjects.has(
+                                        project.name,
+                                      )}
+                                      isIssueExpanded={expandedIssues.has(
+                                        project.name,
+                                      )}
+                                      onToggleProjectExpanded={
+                                        toggleProjectExpanded
+                                      }
+                                      onToggleIssueExpanded={
+                                        toggleIssueExpanded
+                                      }
+                                      onTriggerRenovate={handleTriggerRenovate}
+                                      onCancelRenovate={handleCancelRenovate}
+                                    />
+                                  ))
+                                ) : (
+                                  <tr>
+                                    <td
+                                      colSpan="7"
+                                      className="px-6 py-8 text-center text-gray-500 dark:text-slate-400"
+                                    >
+                                      No projects found. Run discovery to find
+                                      projects.
+                                    </td>
+                                  </tr>
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+
+                          {/* Project cards (mobile) */}
+                          <div className="lg:hidden bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-slate-700">
+                            {sortedProjects.length > 0 ? (
+                              sortedProjects.map((project) => (
+                                <ProjectCard
+                                  key={project.name}
+                                  project={project}
+                                  jobName={job.name}
+                                  platform={job.platform}
+                                  platformEndpoint={job.platformEndpoint}
+                                  isProjectExpanded={expandedProjects.has(
+                                    project.name,
+                                  )}
+                                  isIssueExpanded={expandedIssues.has(
+                                    project.name,
+                                  )}
+                                  onToggleProjectExpanded={
+                                    toggleProjectExpanded
+                                  }
+                                  onToggleIssueExpanded={toggleIssueExpanded}
+                                  onTriggerRenovate={handleTriggerRenovate}
+                                  onCancelRenovate={handleCancelRenovate}
+                                />
+                              ))
+                            ) : (
+                              <div className="p-8 text-center text-gray-500 dark:text-slate-400">
+                                No projects found. Run discovery to find
+                                projects.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center py-12 bg-white dark:bg-slate-800 rounded-lg border border-gray-200 dark:border-slate-700 shadow-sm">
+                        <svg
+                          className="w-16 h-16 text-gray-400 mx-auto mb-4"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                          aria-hidden="true"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"
+                          />
+                        </svg>
+                        <h3 className="text-lg font-semibold text-gray-700 dark:text-slate-300 mb-2">
+                          {selectedStatFilter
+                            ? "No projects match this filter"
+                            : "No projects discovered yet"}
+                        </h3>
+                        <p className="text-gray-500 dark:text-slate-400 mb-4">
+                          {selectedStatFilter
+                            ? `Try clearing the ${STAT_FILTER_LABELS[selectedStatFilter]} filter to see all projects.`
+                            : "Run Discovery to get started."}
+                        </p>
+                        {selectedStatFilter && (
+                          <button
+                            type="button"
+                            onClick={clearStatFilter}
+                            className="px-4 py-2 bg-primary hover:bg-primary-hover text-white rounded-lg transition-colors"
+                          >
+                            Show all projects
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </section>
               )}
             </main>
             <Footer />
@@ -1217,6 +2500,18 @@
             if (sortConfig.key === "lastRun") {
               aValue = new Date(aValue).getTime();
               bValue = new Date(bValue).getTime();
+            }
+
+            // Sort by open PR count
+            if (sortConfig.key === "openPRs") {
+              const aCount = getProjectOpenPRCount(a);
+              const bCount = getProjectOpenPRCount(b);
+              if (aCount !== bCount) {
+                return sortConfig.direction === "asc"
+                  ? aCount - bCount
+                  : bCount - aCount;
+              }
+              return (a.name || "").localeCompare(b.name || "");
             }
 
             // String comparison
@@ -1333,6 +2628,7 @@
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
+            aria-hidden="true"
           >
             <path
               strokeLinecap="round"
@@ -1486,6 +2782,7 @@
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
+            aria-hidden="true"
           >
             <path
               strokeLinecap="round"
@@ -1522,9 +2819,9 @@
         );
       }
 
-      function issueLogsHref(jobName, jobNamespace, projectName, level) {
+      function issueLogsHref(jobName, projectName, level) {
         const levels = level >= 50 ? "ERROR,FATAL" : "WARN";
-        return `${BASE}/logs?renovate=${encodeURIComponent(jobName)}&namespace=${encodeURIComponent(jobNamespace)}&project=${encodeURIComponent(projectName)}&levels=${levels}`;
+        return `${BASE}/logs?renovate=${encodeURIComponent(jobName)}&project=${encodeURIComponent(projectName)}&levels=${levels}`;
       }
 
       // Backend truncates issue messages at 256 bytes and appends "…". Older CRD-stored
@@ -1538,12 +2835,7 @@
         return msg;
       }
 
-      function IssueDetailRow({
-        logIssues,
-        projectName,
-        jobName,
-        jobNamespace,
-      }) {
+      function IssueDetailRow({ logIssues, projectName, jobName }) {
         if (!logIssues || !logIssues.issues || logIssues.issues.length === 0)
           return null;
 
@@ -1555,12 +2847,7 @@
                   {logIssues.issues.map((issue, idx) => (
                     <a
                       key={idx}
-                      href={issueLogsHref(
-                        jobName,
-                        jobNamespace,
-                        projectName,
-                        issue.level,
-                      )}
+                      href={issueLogsHref(jobName, projectName, issue.level)}
                       target="_blank"
                       rel="noopener"
                       className="group flex items-start gap-2 text-sm rounded-md hover:bg-amber-50 dark:hover:bg-amber-900/20 -mx-1 px-1 py-0.5 transition-colors"
@@ -1580,6 +2867,7 @@
                             fill="none"
                             stroke="currentColor"
                             viewBox="0 0 24 24"
+                            aria-hidden="true"
                           >
                             <path
                               strokeLinecap="round"
@@ -1669,1146 +2957,6 @@
               {label}
             </span>
           </button>
-        );
-      }
-
-      function JobCard({
-        job,
-        onRunDiscovery,
-        onTriggerRenovate,
-        onTriggerAllRenovate,
-        onCancelRenovate,
-        onSaveExecutionOptions,
-      }) {
-        const [open, setOpen] = useState(true);
-        const [sortConfig, setSortConfig] = useState({
-          key: "status",
-          direction: "asc",
-        });
-        const STATUS_FILTERS = ["Onboarding Closed", "Disabled", "No Config"];
-        const jobKey = `${job.namespace}/${job.name}`;
-        const [hiddenStatuses, setHiddenStatuses] = useState(() => {
-          try {
-            const stored = JSON.parse(
-              localStorage.getItem(`hiddenStatuses:${jobKey}`) || "[]",
-            );
-            return Array.isArray(stored) ? stored : [];
-          } catch {
-            return [];
-          }
-        });
-        const toggleStatusFilter = (status) => {
-          setHiddenStatuses((prev) => {
-            const next = prev.includes(status)
-              ? prev.filter((s) => s !== status)
-              : [...prev, status];
-            try {
-              localStorage.setItem(
-                `hiddenStatuses:${jobKey}`,
-                JSON.stringify(next),
-              );
-            } catch {}
-            return next;
-          });
-        };
-        const [hideNoPRs, setHideNoPRs] = useState(() => {
-          try {
-            return localStorage.getItem(`hideNoPRs:${jobKey}`) === "true";
-          } catch {
-            return false;
-          }
-        });
-        const toggleHideNoPRs = () =>
-          setHideNoPRs((prev) => {
-            const next = !prev;
-            try {
-              localStorage.setItem(`hideNoPRs:${jobKey}`, String(next));
-            } catch {}
-            return next;
-          });
-        const [hideNoIssues, setHideNoIssues] = useState(() => {
-          try {
-            return localStorage.getItem(`hideNoIssues:${jobKey}`) === "true";
-          } catch {
-            return false;
-          }
-        });
-        const toggleHideNoIssues = () =>
-          setHideNoIssues((prev) => {
-            const next = !prev;
-            try {
-              localStorage.setItem(`hideNoIssues:${jobKey}`, String(next));
-            } catch {}
-            return next;
-          });
-        const sortedProjects = useMemo(() => {
-          let sorted = getSortedProjects(job.projects, sortConfig);
-          if (hiddenStatuses.length > 0) {
-            sorted = sorted.filter(
-              (p) => !hiddenStatuses.includes(p.renovateResultStatus),
-            );
-          }
-          if (hideNoPRs) {
-            sorted = sorted.filter((p) => {
-              const pa = p.prActivity;
-              return (
-                pa &&
-                (pa.created || 0) +
-                  (pa.updated || 0) +
-                  (pa.unchanged || 0) +
-                  (pa.automerged || 0) >
-                  0
-              );
-            });
-          }
-          if (hideNoIssues) {
-            sorted = sorted.filter(
-              (p) =>
-                p.logIssues &&
-                (p.logIssues.warnCount > 0 || p.logIssues.errorCount > 0),
-            );
-          }
-          return sorted;
-        }, [job.projects, sortConfig, hiddenStatuses, hideNoPRs, hideNoIssues]);
-        const statusCounts = useMemo(() => {
-          const counts = {};
-          for (const s of STATUS_FILTERS) counts[s] = 0;
-          for (const p of job.projects || []) {
-            if (STATUS_FILTERS.includes(p.renovateResultStatus))
-              counts[p.renovateResultStatus]++;
-          }
-          return counts;
-        }, [job.projects]);
-        const [expandedProjects, setExpandedProjects] = useState(
-          () => new Set(),
-        );
-        const toggleProjectExpanded = (name) => {
-          setExpandedProjects((prev) => {
-            const next = new Set(prev);
-            if (next.has(name)) {
-              next.delete(name);
-            } else {
-              next.add(name);
-            }
-            return next;
-          });
-        };
-        const [expandedIssues, setExpandedIssues] = useState(() => new Set());
-        const toggleIssueExpanded = (name) => {
-          setExpandedIssues((prev) => {
-            const next = new Set(prev);
-            if (next.has(name)) {
-              next.delete(name);
-            } else {
-              next.add(name);
-            }
-            return next;
-          });
-        };
-        const [showOptions, setShowOptions] = useState(false);
-        const [optionsPos, setOptionsPos] = useState({ top: 0, right: 0 });
-        const optionsBtnRef = useRef(null);
-        const [debugOption, setDebugOption] = useState(
-          job.debugMode?.enabled ?? job.executionOptions?.debug ?? true,
-        );
-        const [webhookOption, setWebhookOption] = useState(
-          job.webhookEnabled ?? false,
-        );
-
-        const getBadgeClass = (status) => {
-          const base =
-            "inline-flex items-center rounded-full px-3 py-1 text-sm font-medium whitespace-nowrap";
-          switch (status) {
-            case "scheduled":
-              return `${base} bg-warning/10 text-warning`;
-            case "running":
-              return `${base} bg-primary/10 text-primary`;
-            case "completed":
-              return `${base} bg-success/10 text-success`;
-            case "failed":
-              return `${base} bg-error/10 text-error`;
-            case "cancelled":
-              return `${base} bg-gray-200 text-gray-600 dark:bg-slate-700 dark:text-slate-300`;
-            default:
-              return `${base} bg-primary/10 text-primary`;
-          }
-        };
-
-        const handleSort = (key) => {
-          let direction = "asc";
-          if (sortConfig.key === key && sortConfig.direction === "asc") {
-            direction = "desc";
-          }
-          setSortConfig({ key, direction });
-        };
-
-        const SortIcon = ({ columnKey }) => {
-          if (sortConfig.key !== columnKey) {
-            return (
-              <svg
-                className="w-4 h-4 text-gray-400"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"
-                />
-              </svg>
-            );
-          }
-
-          return sortConfig.direction === "asc" ? (
-            <svg
-              className="w-4 h-4 text-primary"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M5 15l7-7 7 7"
-              />
-            </svg>
-          ) : (
-            <svg
-              className="w-4 h-4 text-primary"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M19 9l-7 7-7-7"
-              />
-            </svg>
-          );
-        };
-
-        return (
-          <div className="relative bg-white dark:bg-slate-800 rounded-lg overflow-hidden border border-gray-200 dark:border-slate-700 shadow-sm hover:shadow-md transition-all duration-200">
-            <div
-              className="flex flex-col gap-3 sm:gap-4 p-3 sm:p-4 lg:p-6 cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors"
-              onClick={() => setOpen(!open)}
-            >
-              {/* Title Section */}
-              <div className="flex items-center gap-3 min-w-0">
-                <button
-                  className={`transform transition-transform duration-200 flex-shrink-0 ${
-                    open ? "rotate-90" : ""
-                  }`}
-                  aria-label={
-                    open ? "Collapse job details" : "Expand job details"
-                  }
-                  aria-hidden="true"
-                >
-                  <svg
-                    className="w-4 h-4 sm:w-5 sm:h-5 text-gray-500 dark:text-slate-400"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                    aria-hidden="true"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="2"
-                      d="M9 5l7 7-7 7"
-                    />
-                  </svg>
-                </button>
-                <div className="min-w-0 flex-1">
-                  <h2 className="text-base sm:text-lg lg:text-xl font-bold text-gray-900 dark:text-slate-100 truncate">
-                    {job.name}
-                  </h2>
-                  <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">
-                    Namespace:{" "}
-                    <span className="font-mono">{job.namespace}</span>
-                  </p>
-                </div>
-                <div
-                  className="relative flex-shrink-0"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <button
-                    ref={optionsBtnRef}
-                    onClick={() => {
-                      if (!showOptions && optionsBtnRef.current) {
-                        const rect =
-                          optionsBtnRef.current.getBoundingClientRect();
-                        setOptionsPos({
-                          top: rect.bottom + 4,
-                          right: window.innerWidth - rect.right,
-                        });
-                      }
-                      setShowOptions(!showOptions);
-                    }}
-                    className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
-                    aria-label="Execution options"
-                  >
-                    <svg
-                      className="w-4 h-4 sm:w-5 sm:h-5"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
-                      />
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                      />
-                    </svg>
-                  </button>
-                  {showOptions && (
-                    <>
-                      <div
-                        className="fixed inset-0 z-10"
-                        onClick={() => setShowOptions(false)}
-                      />
-                      <div
-                        style={{ top: optionsPos.top, right: optionsPos.right }}
-                        className="fixed z-50 w-60 bg-white dark:bg-slate-800 rounded-lg shadow-lg border border-gray-200 dark:border-slate-700 p-4"
-                      >
-                        <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-3">
-                          Execution Options
-                        </h3>
-                        <label
-                          className={`flex items-center gap-2 mb-3 ${job.debugMode?.envOverride ? "opacity-60" : "cursor-pointer"}`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={
-                              job.debugMode?.envOverride
-                                ? job.debugMode.enabled
-                                : debugOption
-                            }
-                            onChange={(e) => setDebugOption(e.target.checked)}
-                            disabled={!!job.debugMode?.envOverride}
-                            className="w-4 h-4 rounded border-gray-300 accent-primary"
-                          />
-                          <span className="text-sm text-gray-700 dark:text-slate-300">
-                            {job.debugMode?.envOverride
-                              ? `Debug mode (set via envvar, ${job.debugMode.envOverride.name})`
-                              : "Debug mode"}
-                          </span>
-                        </label>
-                        <label className="flex items-center gap-2 mb-3 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={webhookOption}
-                            onChange={(e) => setWebhookOption(e.target.checked)}
-                            className="w-4 h-4 rounded border-gray-300 accent-primary"
-                          />
-                          <span className="text-sm text-gray-700 dark:text-slate-300">
-                            Webhook enabled
-                          </span>
-                        </label>
-                        <button
-                          onClick={() => {
-                            onSaveExecutionOptions(job, {
-                              debug: debugOption,
-                              webhookEnabled: webhookOption,
-                            });
-                            setShowOptions(false);
-                          }}
-                          className="w-full bg-primary hover:bg-primary-hover text-white px-3 py-2 rounded-lg text-sm font-semibold transition-colors"
-                        >
-                          Save
-                        </button>
-                        <div className="border-t border-gray-200 dark:border-slate-700 mt-3 pt-3">
-                          <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-2">
-                            Hide Projects
-                          </h3>
-                          {STATUS_FILTERS.map((status) => (
-                            <label
-                              key={status}
-                              className="flex items-center gap-2 mb-1.5 cursor-pointer"
-                            >
-                              <input
-                                type="checkbox"
-                                checked={hiddenStatuses.includes(status)}
-                                onChange={() => toggleStatusFilter(status)}
-                                className="w-4 h-4 rounded border-gray-300 accent-primary"
-                              />
-                              <span className="text-sm text-gray-700 dark:text-slate-300">
-                                {status}
-                                {statusCounts[status] > 0
-                                  ? ` (${statusCounts[status]})`
-                                  : ""}
-                              </span>
-                            </label>
-                          ))}
-                          <label className="flex items-center gap-2 mb-1.5 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={hideNoPRs}
-                              onChange={toggleHideNoPRs}
-                              className="w-4 h-4 rounded border-gray-300 accent-primary"
-                            />
-                            <span className="text-sm text-gray-700 dark:text-slate-300">
-                              Without PRs
-                            </span>
-                          </label>
-                          <label className="flex items-center gap-2 mb-1.5 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={hideNoIssues}
-                              onChange={toggleHideNoIssues}
-                              className="w-4 h-4 rounded border-gray-300 accent-primary"
-                            />
-                            <span className="text-sm text-gray-700 dark:text-slate-300">
-                              Without Issues
-                            </span>
-                          </label>
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-3 sm:gap-4">
-                <div className="flex items-center gap-2 min-w-0">
-                  <svg
-                    className="w-4 h-4 sm:w-5 sm:h-5 text-primary flex-shrink-0"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                  <span className="text-xs sm:text-sm text-gray-600 dark:text-slate-300 font-medium flex-shrink-0">
-                    Schedule:
-                  </span>
-                  <span className="font-mono text-xs sm:text-sm font-semibold text-gray-900 dark:text-slate-100 truncate">
-                    {job.cronExpression || "Not set"}
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-2 min-w-0">
-                  <svg
-                    className="w-4 h-4 sm:w-5 sm:h-5 text-primary flex-shrink-0"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M13 10V3L4 14h7v7l9-11h-7z"
-                    />
-                  </svg>
-                  <span className="text-xs sm:text-sm text-gray-600 dark:text-slate-300 font-medium flex-shrink-0">
-                    Next Run:
-                  </span>
-                  {job.nextSchedule ? (
-                    <Countdown nextSchedule={job.nextSchedule} />
-                  ) : (
-                    <span className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">
-                      N/A
-                    </span>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-2 sm:ml-auto">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onRunDiscovery(job);
-                    }}
-                    disabled={job.discoveryRunning}
-                    className="bg-primary hover:bg-primary-hover disabled:opacity-60 disabled:cursor-not-allowed text-white px-3 py-2 sm:px-4 sm:py-2 rounded-lg font-semibold text-xs sm:text-sm shadow-sm hover:shadow-md active:scale-98 transition-all flex items-center justify-center gap-2"
-                    aria-label={
-                      job.discoveryRunning
-                        ? "Discovery running"
-                        : `Run discovery for ${job.name}`
-                    }
-                  >
-                    <svg
-                      className={`w-3 h-3 sm:w-4 sm:h-4 ${
-                        job.discoveryRunning ? "animate-spin" : ""
-                      }`}
-                      fill="currentColor"
-                      viewBox="0 0 20 20"
-                    >
-                      <path
-                        fillRule="evenodd"
-                        d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
-                    <span>
-                      {job.discoveryRunning ? "Running..." : "Run Discovery"}
-                    </span>
-                  </button>
-
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onTriggerAllRenovate(job);
-                    }}
-                    disabled={
-                      job.triggeringAll ||
-                      !job.projects ||
-                      job.projects.length === 0
-                    }
-                    className="bg-primary hover:bg-primary-hover disabled:opacity-60 disabled:cursor-not-allowed text-white px-3 py-2 sm:px-4 sm:py-2 rounded-lg font-semibold text-xs sm:text-sm shadow-sm hover:shadow-md active:scale-98 transition-all flex items-center justify-center gap-2"
-                    aria-label={
-                      job.triggeringAll
-                        ? "Triggering all projects"
-                        : `Trigger all projects for ${job.name}`
-                    }
-                  >
-                    <svg
-                      className={`w-3 h-3 sm:w-4 sm:h-4 ${
-                        job.triggeringAll ? "animate-spin" : ""
-                      }`}
-                      fill="currentColor"
-                      viewBox="0 0 20 20"
-                    >
-                      <path
-                        fillRule="evenodd"
-                        d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
-                    <span>
-                      {job.triggeringAll ? "Triggering..." : "Trigger All"}
-                    </span>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {open && (
-              <div className="border-t border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/50">
-                <div className="hidden lg:block overflow-x-auto">
-                  <table className="w-full">
-                    <thead className="bg-white dark:bg-slate-700 border-b border-gray-200 dark:border-slate-600">
-                      <tr>
-                        <th
-                          className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-600 select-none"
-                          onClick={() => handleSort("name")}
-                        >
-                          <div className="flex items-center gap-2">
-                            <span>Project</span>
-                            <SortIcon columnKey="name" />
-                          </div>
-                        </th>
-                        <th
-                          className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-600 select-none"
-                          onClick={() => handleSort("status")}
-                        >
-                          <div className="flex items-center gap-2">
-                            <span>Status</span>
-                            <SortIcon columnKey="status" />
-                          </div>
-                        </th>
-                        <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider select-none">
-                          Activity
-                        </th>
-                        <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider select-none">
-                          Issues
-                        </th>
-                        <th
-                          className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider cursor-pointer hover:bg-gray-50 dark:hover:bg-slate-600 select-none"
-                          onClick={() => handleSort("lastRun")}
-                        >
-                          <div className="flex items-center gap-2">
-                            <span>Last Run</span>
-                            <SortIcon columnKey="lastRun" />
-                          </div>
-                        </th>
-                        <th className="px-3 xl:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider">
-                          Links
-                        </th>
-                        <th className="px-3 xl:px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-slate-300 uppercase tracking-wider">
-                          Actions
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-slate-700">
-                      {job.projects && job.projects.length > 0 ? (
-                        sortedProjects.map((project) => {
-                          const ProjectRow = () => {
-                            const {
-                              containerRef,
-                              tooltipProps,
-                              tooltipElement,
-                            } = useTooltip(project);
-
-                            return (
-                              <>
-                                <tr
-                                  ref={containerRef}
-                                  {...tooltipProps}
-                                  className={`hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors ${project.renovateResultStatus && project.renovateResultStatus !== "done" ? "bg-amber-50/60 dark:bg-amber-900/10 shadow-[inset_4px_0_0_0_rgb(251_191_36)] dark:shadow-[inset_4px_0_0_0_rgb(245_158_11)]" : ""}`}
-                                >
-                                  <td className="px-3 xl:px-6 py-4">
-                                    <div className="flex items-center gap-2 w-full justify-between">
-                                      <span
-                                        className={`font-medium min-w-0 break-words ${project.renovateResultStatus && project.renovateResultStatus !== "done" ? "text-gray-500 dark:text-slate-400" : "text-gray-900 dark:text-slate-100"}`}
-                                      >
-                                        {project.name}
-                                      </span>
-                                      {project.renovateResultStatus &&
-                                        project.renovateResultStatus !==
-                                          "done" && (
-                                          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap shrink-0 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 ring-1 ring-amber-300 dark:ring-amber-700">
-                                            {project.renovateResultStatus}
-                                          </span>
-                                        )}
-                                    </div>
-                                  </td>
-                                  <td className="px-3 xl:px-6 py-4">
-                                    <span
-                                      className={getBadgeClass(project.status)}
-                                    >
-                                      {project.status || "-"}
-                                    </span>
-                                  </td>
-                                  <td
-                                    className="px-3 xl:px-6 py-4"
-                                    data-no-tooltip="true"
-                                  >
-                                    <PRActivityBadges
-                                      prActivity={project.prActivity}
-                                      expanded={expandedProjects.has(
-                                        project.name,
-                                      )}
-                                      onToggle={() =>
-                                        toggleProjectExpanded(project.name)
-                                      }
-                                      projectName={project.name}
-                                    />
-                                  </td>
-                                  <td
-                                    className="px-3 xl:px-6 py-4"
-                                    data-no-tooltip="true"
-                                  >
-                                    <IssuesBadges
-                                      logIssues={project.logIssues}
-                                      expanded={expandedIssues.has(
-                                        project.name,
-                                      )}
-                                      onToggle={() =>
-                                        toggleIssueExpanded(project.name)
-                                      }
-                                      projectName={project.name}
-                                    />
-                                  </td>
-                                  <td className="px-3 xl:px-6 py-4">
-                                    <span className="text-sm text-gray-600 dark:text-slate-300">
-                                      {project.lastRun
-                                        ? formatTimeAgo(project.lastRun)
-                                        : "Never"}
-                                    </span>
-                                  </td>
-                                  <td
-                                    className="px-3 xl:px-6 py-4"
-                                    data-no-tooltip="true"
-                                  >
-                                    <div className="flex items-center gap-2">
-                                      {(() => {
-                                        const dashboardUrl = buildDashboardUrl(
-                                          job.platform,
-                                          job.platformEndpoint,
-                                          project.name,
-                                        );
-                                        return dashboardUrl ? (
-                                          <a
-                                            href={dashboardUrl}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="inline-flex items-center gap-1 text-sm text-primary hover:text-primary-hover font-medium"
-                                            aria-label={`View Dependency Dashboard for ${project.name}`}
-                                            title={`Dependency Dashboard for ${project.name}`}
-                                          >
-                                            <svg
-                                              className="w-3.5 h-3.5"
-                                              fill="none"
-                                              stroke="currentColor"
-                                              viewBox="0 0 24 24"
-                                              aria-hidden="true"
-                                            >
-                                              <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                strokeWidth={2}
-                                                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"
-                                              />
-                                            </svg>
-                                          </a>
-                                        ) : null;
-                                      })()}
-                                      {(() => {
-                                        const prUrl = buildPRUrl(
-                                          job.platform,
-                                          job.platformEndpoint,
-                                          project.name,
-                                        );
-                                        return prUrl ? (
-                                          <a
-                                            href={prUrl}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="inline-flex items-center gap-1 text-sm text-primary hover:text-primary-hover font-medium"
-                                            aria-label={`View open PRs/MRs for ${project.name}`}
-                                            title={`Open PRs/MRs for ${project.name}`}
-                                          >
-                                            <svg
-                                              className="w-3.5 h-3.5"
-                                              fill="none"
-                                              stroke="currentColor"
-                                              viewBox="0 0 24 24"
-                                              aria-hidden="true"
-                                            >
-                                              <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                strokeWidth={2}
-                                                d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
-                                              />
-                                            </svg>
-                                          </a>
-                                        ) : null;
-                                      })()}
-                                      {(() => {
-                                        const prUrl = buildPRUrl(
-                                          job.platform,
-                                          job.platformEndpoint,
-                                          project.name,
-                                        );
-                                        const dashboardUrl = buildDashboardUrl(
-                                          job.platform,
-                                          job.platformEndpoint,
-                                          project.name,
-                                        );
-                                        return !prUrl && !dashboardUrl ? (
-                                          <span className="text-gray-400 dark:text-slate-500 text-sm">
-                                            -
-                                          </span>
-                                        ) : null;
-                                      })()}
-                                    </div>
-                                  </td>
-                                  <td
-                                    className="px-3 xl:px-6 py-4 text-right"
-                                    data-no-tooltip="true"
-                                  >
-                                    <div className="flex items-center justify-end gap-2">
-                                      <ActionButton
-                                        project={project}
-                                        onTrigger={() =>
-                                          onTriggerRenovate(job, project)
-                                        }
-                                        onCancel={() =>
-                                          onCancelRenovate(job, project)
-                                        }
-                                        width="w-[100px]"
-                                      />
-                                      <a
-                                        href={`${BASE}/logs?renovate=${encodeURIComponent(
-                                          job.name,
-                                        )}&namespace=${encodeURIComponent(
-                                          job.namespace,
-                                        )}&project=${encodeURIComponent(
-                                          project.name,
-                                        )}`}
-                                        target="_blank"
-                                        className="bg-gray-600 hover:bg-gray-700 text-white px-3 py-1.5 rounded-lg font-semibold text-[0.813rem] shadow-sm hover:shadow-md transition-all inline-block min-w-[60px] text-center"
-                                        aria-label={`View logs for ${project.name}`}
-                                      >
-                                        Logs
-                                      </a>
-                                    </div>
-                                  </td>
-                                </tr>
-                                {expandedProjects.has(project.name) &&
-                                  project.prActivity && (
-                                    <PRDetailRow
-                                      prActivity={project.prActivity}
-                                      projectName={project.name}
-                                      platform={job.platform}
-                                      platformEndpoint={job.platformEndpoint}
-                                    />
-                                  )}
-                                {expandedIssues.has(project.name) &&
-                                  project.logIssues && (
-                                    <IssueDetailRow
-                                      logIssues={project.logIssues}
-                                      projectName={project.name}
-                                      jobName={job.name}
-                                      jobNamespace={job.namespace}
-                                    />
-                                  )}
-                                {tooltipElement}
-                              </>
-                            );
-                          };
-
-                          return <ProjectRow key={project.name} />;
-                        })
-                      ) : (
-                        <tr>
-                          <td
-                            colSpan="7"
-                            className="px-6 py-8 text-center text-gray-500 dark:text-slate-400"
-                          >
-                            No projects found. Run discovery to find projects.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="lg:hidden bg-white dark:bg-slate-800 divide-y divide-gray-200 dark:divide-slate-700">
-                  {job.projects && job.projects.length > 0 ? (
-                    sortedProjects.map((project) => {
-                      const ProjectCard = () => {
-                        const { containerRef, tooltipProps, tooltipElement } =
-                          useTooltip(project);
-
-                        return (
-                          <>
-                            <div
-                              ref={containerRef}
-                              {...tooltipProps}
-                              className={`p-4 space-y-3 ${project.renovateResultStatus && project.renovateResultStatus !== "done" ? "bg-amber-50/60 dark:bg-amber-900/10 border-l-4 border-amber-400 dark:border-amber-500" : ""}`}
-                            >
-                              <div className="flex items-start justify-between">
-                                <div>
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <p
-                                      className={`font-medium ${project.renovateResultStatus && project.renovateResultStatus !== "done" ? "text-gray-500 dark:text-slate-400" : "text-gray-900 dark:text-slate-100"}`}
-                                    >
-                                      {project.name}
-                                    </p>
-                                    {project.renovateResultStatus &&
-                                      project.renovateResultStatus !==
-                                        "done" && (
-                                        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap shrink-0 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 ring-1 ring-amber-300 dark:ring-amber-700">
-                                          {project.renovateResultStatus}
-                                        </span>
-                                      )}
-                                  </div>
-                                  <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
-                                    Last run:{" "}
-                                    {project.lastRun
-                                      ? formatTimeAgo(project.lastRun)
-                                      : "Never"}
-                                  </p>
-                                </div>
-                                <span
-                                  className={`ml-2 ${getBadgeClass(project.status)}`}
-                                >
-                                  {project.status || "-"}
-                                </span>
-                              </div>
-                              {/* PR Activity section */}
-                              {project.prActivity?.prs?.length > 0 && (
-                                <div
-                                  className="flex items-center gap-2"
-                                  data-no-tooltip="true"
-                                >
-                                  <span className="text-xs text-gray-500 dark:text-slate-400 font-medium">
-                                    Activity:
-                                  </span>
-                                  <PRActivityBadges
-                                    prActivity={project.prActivity}
-                                    expanded={expandedProjects.has(
-                                      project.name,
-                                    )}
-                                    onToggle={() =>
-                                      toggleProjectExpanded(project.name)
-                                    }
-                                    projectName={project.name}
-                                  />
-                                </div>
-                              )}
-                              {expandedProjects.has(project.name) &&
-                                project.prActivity &&
-                                project.prActivity.prs &&
-                                project.prActivity.prs.length > 0 && (
-                                  <div
-                                    id={`pr-details-${safeId(project.name)}`}
-                                    className="pl-2 border-l-2 border-gray-200 dark:border-slate-600 max-h-48 overflow-y-auto"
-                                  >
-                                    <div className="space-y-1.5">
-                                      {project.prActivity.prs.map((pr, idx) => {
-                                        const actionClass = prActionBadgeClass(
-                                          pr.action,
-                                        );
-                                        const prUrl = buildSinglePRUrl(
-                                          job.platform,
-                                          job.platformEndpoint,
-                                          project.name,
-                                          pr.number,
-                                        );
-                                        return (
-                                          <div
-                                            key={idx}
-                                            className="flex items-center gap-2 text-sm"
-                                          >
-                                            <span className={actionClass}>
-                                              {pr.action}
-                                            </span>
-                                            {prUrl ? (
-                                              <a
-                                                href={prUrl}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="text-primary hover:text-primary-hover hover:underline truncate text-xs"
-                                                title={pr.title || prUrl}
-                                              >
-                                                {pr.title || prUrl}
-                                              </a>
-                                            ) : (
-                                              <span
-                                                className="text-gray-700 dark:text-slate-300 truncate text-xs"
-                                                title={pr.title}
-                                              >
-                                                {pr.title || "Untitled PR"}
-                                              </span>
-                                            )}
-                                            {pr.number && prUrl && (
-                                              <a
-                                                href={prUrl}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="text-gray-400 dark:text-slate-500 hover:text-primary hover:dark:text-primary-hover text-xs flex-shrink-0"
-                                              >
-                                                #{pr.number}
-                                              </a>
-                                            )}
-                                            {pr.number && !prUrl && (
-                                              <span className="text-gray-400 dark:text-slate-500 text-xs flex-shrink-0">
-                                                #{pr.number}
-                                              </span>
-                                            )}
-                                          </div>
-                                        );
-                                      })}
-                                      {project.prActivity.truncated && (
-                                        <div className="text-xs text-gray-400 dark:text-slate-500 italic mt-1">
-                                          Some PRs omitted (list truncated)
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                )}
-                              {/* Issues section */}
-                              {(project.logIssues?.warnCount > 0 ||
-                                project.logIssues?.errorCount > 0) && (
-                                <div
-                                  className="flex items-center gap-2"
-                                  data-no-tooltip="true"
-                                >
-                                  <span className="text-xs text-gray-500 dark:text-slate-400 font-medium">
-                                    Issues:
-                                  </span>
-                                  <IssuesBadges
-                                    logIssues={project.logIssues}
-                                    expanded={expandedIssues.has(project.name)}
-                                    onToggle={() =>
-                                      toggleIssueExpanded(project.name)
-                                    }
-                                    projectName={project.name}
-                                  />
-                                </div>
-                              )}
-                              {expandedIssues.has(project.name) &&
-                                project.logIssues &&
-                                project.logIssues.issues &&
-                                project.logIssues.issues.length > 0 && (
-                                  <div
-                                    id={`issue-details-${safeId(project.name)}`}
-                                    className="pl-2 border-l-2 border-amber-300 dark:border-amber-600 max-h-48 overflow-y-auto"
-                                  >
-                                    <div className="space-y-1.5">
-                                      {project.logIssues.issues.map(
-                                        (issue, idx) => (
-                                          <a
-                                            key={idx}
-                                            href={issueLogsHref(
-                                              job.name,
-                                              job.namespace,
-                                              project.name,
-                                              issue.level,
-                                            )}
-                                            target="_blank"
-                                            rel="noopener"
-                                            className="group flex items-start gap-2 text-sm rounded-md hover:bg-amber-50 dark:hover:bg-amber-900/20 -mx-1 px-1 py-0.5 transition-colors"
-                                            title="Open full message in logs"
-                                          >
-                                            <span
-                                              className={`flex-shrink-0 ${issueLevelBadgeClass(issue.level)}`}
-                                            >
-                                              {issue.level >= 50
-                                                ? "error"
-                                                : "warn"}
-                                            </span>
-                                            <span className="text-gray-700 dark:text-slate-300 break-all text-xs">
-                                              {displayIssueMessage(
-                                                issue.message,
-                                              )}
-                                              <span className="inline-flex items-center gap-0.5 ml-1.5 text-primary hover:underline whitespace-nowrap">
-                                                View in logs
-                                                <svg
-                                                  className="w-3 h-3"
-                                                  fill="none"
-                                                  stroke="currentColor"
-                                                  viewBox="0 0 24 24"
-                                                >
-                                                  <path
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                    strokeWidth={2}
-                                                    d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
-                                                  />
-                                                </svg>
-                                              </span>
-                                            </span>
-                                          </a>
-                                        ),
-                                      )}
-                                      {project.logIssues.truncated && (
-                                        <div className="text-xs text-gray-400 dark:text-slate-500 italic mt-1">
-                                          Some issues omitted (list truncated)
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                )}
-                              <div
-                                className="flex gap-2 flex-wrap"
-                                data-no-tooltip="true"
-                              >
-                                <ActionButton
-                                  project={project}
-                                  onTrigger={() =>
-                                    onTriggerRenovate(job, project)
-                                  }
-                                  onCancel={() =>
-                                    onCancelRenovate(job, project)
-                                  }
-                                  width="w-[110px]"
-                                />
-                                <a
-                                  href={`${BASE}/logs?renovate=${encodeURIComponent(
-                                    job.name,
-                                  )}&namespace=${encodeURIComponent(
-                                    job.namespace,
-                                  )}&project=${encodeURIComponent(project.name)}`}
-                                  target="_blank"
-                                  className="bg-gray-600 hover:bg-gray-700 text-white px-3 py-1.5 rounded-lg font-semibold text-[0.813rem] shadow-sm hover:shadow-md transition-all inline-block w-[70px] text-center"
-                                  aria-label={`View logs for ${project.name}`}
-                                >
-                                  Logs
-                                </a>
-                                {(() => {
-                                  const dashboardUrl = buildDashboardUrl(
-                                    job.platform,
-                                    job.platformEndpoint,
-                                    project.name,
-                                  );
-                                  return dashboardUrl ? (
-                                    <a
-                                      href={dashboardUrl}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="inline-flex items-center gap-1 bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-200 px-3 py-1.5 rounded-lg font-semibold text-[0.813rem] shadow-sm hover:shadow-md transition-all"
-                                      aria-label={`View Dependency Dashboard for ${project.name}`}
-                                      title={`Dependency Dashboard for ${project.name}`}
-                                    >
-                                      <svg
-                                        className="w-3.5 h-3.5"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        viewBox="0 0 24 24"
-                                        aria-hidden="true"
-                                      >
-                                        <path
-                                          strokeLinecap="round"
-                                          strokeLinejoin="round"
-                                          strokeWidth={2}
-                                          d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"
-                                        />
-                                      </svg>
-                                    </a>
-                                  ) : null;
-                                })()}
-                                {(() => {
-                                  const prUrl = buildPRUrl(
-                                    job.platform,
-                                    job.platformEndpoint,
-                                    project.name,
-                                  );
-                                  return prUrl ? (
-                                    <a
-                                      href={prUrl}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="inline-flex items-center gap-1 bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 dark:hover:bg-slate-600 text-gray-700 dark:text-slate-200 px-3 py-1.5 rounded-lg font-semibold text-[0.813rem] shadow-sm hover:shadow-md transition-all"
-                                      aria-label={`View open PRs/MRs for ${project.name}`}
-                                      title={`Open PRs/MRs for ${project.name}`}
-                                    >
-                                      <svg
-                                        className="w-3.5 h-3.5"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        viewBox="0 0 24 24"
-                                        aria-hidden="true"
-                                      >
-                                        <path
-                                          strokeLinecap="round"
-                                          strokeLinejoin="round"
-                                          strokeWidth={2}
-                                          d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
-                                        />
-                                      </svg>
-                                    </a>
-                                  ) : null;
-                                })()}
-                              </div>
-                            </div>
-                            {tooltipElement}
-                          </>
-                        );
-                      };
-
-                      return <ProjectCard key={project.name} />;
-                    })
-                  ) : (
-                    <div className="p-8 text-center text-gray-500 dark:text-slate-400">
-                      No projects found. Run discovery to find projects.
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
         );
       }
 

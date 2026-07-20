@@ -29,6 +29,12 @@ func (rc *responseCapture) WriteHeader(code int) {
 	rc.ResponseWriter.WriteHeader(code)
 }
 
+// Unwrap returns the underlying ResponseWriter, enabling http.ResponseController
+// to access connection-level features (e.g., SetWriteDeadline) through wrapper chains.
+func (rc *responseCapture) Unwrap() http.ResponseWriter {
+	return rc.ResponseWriter
+}
+
 // accessLogMiddleware logs every inbound HTTP request with method, path, status, and duration.
 // Health endpoints (/healthz, /readyz) are logged at debug level to reduce noise;
 // all other paths are logged at info level.

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -49,6 +50,10 @@ type Config struct {
 	ImageCacheTTL   time.Duration
 }
 
+// ErrDiscoveryAlreadyRunning is returned when a discovery container is already
+// tracked for the same job.
+var ErrDiscoveryAlreadyRunning = errors.New("discovery is already running for this job")
+
 // DockerExecutor manages Renovate container lifecycle via the Docker API.
 type DockerExecutor struct {
 	docker *client.Client
@@ -70,6 +75,10 @@ type DockerExecutor struct {
 	running    map[string]string    // project → containerID
 	imageCache map[string]time.Time // image tag → last-checked time
 	stopCh     chan struct{}
+
+	// Discovery tracking
+	discoveryMu sync.Mutex
+	discoveryID map[string]string // jobName → containerID
 }
 
 // New creates a new DockerExecutor with the given configuration.
@@ -121,6 +130,7 @@ func New(cfg Config, store statestore.RenovateJobManager, logger *slog.Logger) (
 		running:         make(map[string]string),
 		imageCache:      make(map[string]time.Time),
 		stopCh:          make(chan struct{}),
+		discoveryID:     make(map[string]string),
 	}, nil
 }
 
@@ -289,6 +299,147 @@ func (e *DockerExecutor) DispatchDiscovery(ctx context.Context, job *api.Renovat
 	}
 
 	e.logger.Info("discovery completed", "job", job.Name, "repos", len(repos))
+	return repos, nil
+}
+
+// DispatchDiscoveryAsync starts a discovery container in a background goroutine.
+// It returns immediately after starting the container. The callback is invoked
+// with the discovered repos (or error) once the container exits.
+// Returns ErrDiscoveryAlreadyRunning if a discovery container is already tracked for the job.
+func (e *DockerExecutor) DispatchDiscoveryAsync(_ context.Context, job *api.RenovateJob, callback func([]string, error)) error {
+	e.discoveryMu.Lock()
+	if _, running := e.discoveryID[job.Name]; running {
+		e.discoveryMu.Unlock()
+		return ErrDiscoveryAlreadyRunning
+	}
+	// Reserve the slot (will be updated with real container ID after start)
+	e.discoveryID[job.Name] = ""
+	e.discoveryMu.Unlock()
+
+	// Use a background context derived from stopCh so the goroutine outlives the HTTP request
+	bgCtx, bgCancel := context.WithCancel(context.Background())
+	go func() {
+		defer bgCancel()
+		defer func() {
+			e.discoveryMu.Lock()
+			delete(e.discoveryID, job.Name)
+			e.discoveryMu.Unlock()
+		}()
+
+		// Abort if the executor is stopping
+		go func() {
+			select {
+			case <-e.stopCh:
+				bgCancel()
+			case <-bgCtx.Done():
+			}
+		}()
+
+		repos, err := e.runDiscoveryContainer(bgCtx, job)
+		if callback != nil {
+			callback(repos, err)
+		}
+	}()
+
+	return nil
+}
+
+// GetRunningDiscoveryContainerID returns the container ID for a running discovery, if any.
+func (e *DockerExecutor) GetRunningDiscoveryContainerID(jobName string) (string, bool) {
+	e.discoveryMu.Lock()
+	defer e.discoveryMu.Unlock()
+	cid, ok := e.discoveryID[jobName]
+	if !ok || cid == "" {
+		return "", false
+	}
+	return cid, true
+}
+
+// runDiscoveryContainer runs the discovery container synchronously and returns repos.
+// It registers/unregisters the container ID in the discovery tracking map.
+func (e *DockerExecutor) runDiscoveryContainer(ctx context.Context, job *api.RenovateJob) ([]string, error) {
+	e.logger.Info("running async discovery", "job", job.Name)
+
+	if err := e.pullImage(ctx); err != nil {
+		return nil, fmt.Errorf("pull image for discovery: %w", err)
+	}
+
+	envVars := e.buildEnvVars(job, true)
+
+	discoveryCmd := `BASE_DIR="${RENOVATE_BASE_DIR:-/tmp}"; renovate --autodiscover --write-discovered-repos "$BASE_DIR/repos.json" >> "$BASE_DIR/logs.json" 2>&1 && cat "$BASE_DIR/repos.json" || cat "$BASE_DIR/logs.json"`
+
+	labels := map[string]string{
+		labelJobName:   job.Name,
+		labelType:      typeDiscovery,
+		labelStartedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+
+	containerCfg := &container.Config{
+		Image:  e.image,
+		Cmd:    []string{"/bin/sh", "-c", discoveryCmd},
+		Env:    envVars,
+		Labels: labels,
+		User:   "12021:12021",
+	}
+
+	hostCfg := &container.HostConfig{
+		Binds:       []string{e.cacheVolume + ":/tmp/renovate"},
+		NetworkMode: container.NetworkMode(e.network),
+	}
+
+	name := fmt.Sprintf("renovate-discovery-%s-%d", sanitizeName(job.Name), time.Now().Unix())
+
+	resp, err := e.docker.ContainerCreate(ctx, containerCfg, hostCfg, &network.NetworkingConfig{}, nil, name)
+	if err != nil {
+		return nil, fmt.Errorf("create discovery container: %w", err)
+	}
+	containerID := resp.ID
+
+	if err := e.docker.ContainerStart(ctx, containerID, container.StartOptions{}); err != nil {
+		_ = e.docker.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true})
+		return nil, fmt.Errorf("start discovery container: %w", err)
+	}
+
+	// Register the real container ID for tracking
+	e.discoveryMu.Lock()
+	e.discoveryID[job.Name] = containerID
+	e.discoveryMu.Unlock()
+
+	// Wait for the container to finish
+	statusCh, errCh := e.docker.ContainerWait(ctx, containerID, container.WaitConditionNotRunning)
+	select {
+	case err := <-errCh:
+		if err != nil {
+			_ = e.docker.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true})
+			return nil, fmt.Errorf("wait for discovery container: %w", err)
+		}
+	case status := <-statusCh:
+		if status.StatusCode != 0 {
+			logs, _ := e.getContainerLogs(ctx, containerID)
+			_ = e.docker.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true})
+			return nil, fmt.Errorf("discovery container exited with code %d: %s", status.StatusCode, string(logs))
+		}
+	case <-ctx.Done():
+		_ = e.docker.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true})
+		return nil, ctx.Err()
+	}
+
+	// Read stdout from the container logs
+	output, err := e.getContainerLogs(ctx, containerID)
+	if err != nil {
+		_ = e.docker.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true})
+		return nil, fmt.Errorf("read discovery logs: %w", err)
+	}
+
+	_ = e.docker.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true})
+
+	// Parse JSON array of repo names
+	var repos []string
+	if err := json.Unmarshal(output, &repos); err != nil {
+		return nil, fmt.Errorf("parse discovery output: %w (raw: %s)", err, string(output))
+	}
+
+	e.logger.Info("async discovery completed", "job", job.Name, "repos", len(repos))
 	return repos, nil
 }
 
@@ -894,6 +1045,86 @@ func (e *DockerExecutor) GetRunningContainerID(project string) (string, bool) {
 	defer e.mu.Unlock()
 	cid, ok := e.running[project]
 	return cid, ok
+}
+
+// StreamContainerLogs returns a live stream of container logs with stdout and
+// stderr demultiplexed. Stderr lines that are plain text (not valid NDJSON) are
+// wrapped as JSON log entries before writing. The returned reader blocks until
+// the container exits or the context is cancelled.
+func (e *DockerExecutor) StreamContainerLogs(ctx context.Context, containerID string) (io.ReadCloser, error) {
+	reader, err := e.docker.ContainerLogs(ctx, containerID, container.LogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Follow:     true,
+		Timestamps: false,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	pr, pw := io.Pipe()
+
+	go func() {
+		defer func() { _ = reader.Close() }()
+
+		// stderrWriter wraps non-JSON stderr lines as NDJSON.
+		stderrWriter := &stderrJSONWrapper{w: pw}
+
+		// StdCopy processes frames sequentially: stdout frames write directly
+		// to pw, stderr frames go through stderrWriter. No concurrent writes.
+		_, err := stdcopy.StdCopy(pw, stderrWriter, reader)
+		if err != nil {
+			pw.CloseWithError(err)
+		} else {
+			_ = pw.Close()
+		}
+	}()
+
+	return pr, nil
+}
+
+// stderrJSONWrapper is an io.Writer that ensures each line written is valid
+// NDJSON. If a line is already valid JSON it passes through unchanged.
+// Plain-text lines are wrapped as {"level":60,"msg":"[stderr] ...","time":"..."}.
+type stderrJSONWrapper struct {
+	w   io.Writer
+	buf []byte
+}
+
+func (s *stderrJSONWrapper) Write(p []byte) (int, error) {
+	s.buf = append(s.buf, p...)
+	for {
+		nl := bytes.IndexByte(s.buf, '\n')
+		if nl < 0 {
+			break
+		}
+		line := s.buf[:nl]
+		s.buf = s.buf[nl+1:]
+
+		trimmed := bytes.TrimSpace(line)
+		if len(trimmed) == 0 {
+			continue
+		}
+
+		if json.Valid(trimmed) {
+			// Already valid JSON — pass through.
+			if _, err := s.w.Write(append(trimmed, '\n')); err != nil {
+				return len(p), err
+			}
+		} else {
+			// Wrap plain text as JSON log entry.
+			entry := map[string]interface{}{
+				"level": 60,
+				"msg":   "[stderr] " + string(trimmed),
+				"time":  time.Now().UTC().Format(time.RFC3339Nano),
+			}
+			data, _ := json.Marshal(entry)
+			if _, err := s.w.Write(append(data, '\n')); err != nil {
+				return len(p), err
+			}
+		}
+	}
+	return len(p), nil
 }
 
 // StopContainer stops a specific container by project name.
