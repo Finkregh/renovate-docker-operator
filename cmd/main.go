@@ -19,6 +19,9 @@ import (
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/statestore"
 )
 
+// Version is set via -ldflags "-X main.Version=..." at build time.
+var Version = "dev"
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "fatal: %v\n", err)
@@ -99,7 +102,7 @@ func run() error {
 	sched.Start()
 
 	// 8. Start unified HTTP server (UI + webhook + health + API)
-	srv := server.New(store, disc, sched, exec, logger, "0.1.0", cfg.MaxRequestBody)
+	srv := server.New(store, disc, sched, exec, logger, Version, cfg.MaxRequestBody)
 	srv.Start()
 
 	logger.Info("operator started — waiting for signals")
