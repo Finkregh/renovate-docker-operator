@@ -2,6 +2,10 @@
 
 A standalone Docker-based operator for running [Renovate](https://github.com/renovatebot/renovate) against Forgejo/Gitea instances. Manages Renovate containers via Docker socket — no Kubernetes required.
 
+![Overview screenshot](screenshot-main.png)
+
+![Log view with opened log level selector](screenshot-logs.png)
+
 ## Origin & Motivation
 
 This project is a fork of [**mogenius/renovate-operator**](https://github.com/mogenius/renovate-operator), adapted for environments that don't run Kubernetes.
