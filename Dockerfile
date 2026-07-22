@@ -26,7 +26,7 @@ RUN mkdir -p static/js && \
     curl -s -L -o static/js/tailwind.min.js "https://cdn.tailwindcss.com" && \
     curl -s -L -o static/js/babel.min.js "https://unpkg.com/@babel/standalone@8.0.1/babel.min.js"
 RUN mkdir -p /bundle && \
-    npm install --prefix /bundle "react@19.2.7" "react-dom@19.2.7" esbuild --save=false && \
+    npm install --prefix /bundle "react@19.2.8" "react-dom@19.2.7" esbuild --save=false && \
     echo "import React from 'react'; import { createRoot } from 'react-dom/client'; export { React, createRoot };" \
         > /bundle/entry.mjs && \
     /bundle/node_modules/.bin/esbuild /bundle/entry.mjs \
