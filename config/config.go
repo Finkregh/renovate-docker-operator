@@ -73,6 +73,17 @@ type Config struct {
 
 	// Image Cache
 	ImageCacheTTL time.Duration // ROP_IMAGE_CACHE_TTL (default: 24h, 0 disables)
+
+	// Resilience
+	RapidFailThreshold int           // ROP_RAPID_FAIL_THRESHOLD (default: 10)
+	RapidFailWindow    time.Duration // ROP_RAPID_FAIL_WINDOW (default: 5m)
+	FailureMinRuntime  time.Duration // ROP_FAILURE_MIN_RUNTIME (default: 30s)
+	BackoffBase        time.Duration // ROP_BACKOFF_BASE (default: 1m)
+	BackoffMax         time.Duration // ROP_BACKOFF_MAX (default: 1h)
+	ReplayQueueCap     int           // ROP_REPLAY_QUEUE_CAP (default: 10000)
+
+	// Metrics
+	MetricsProjectLabel string // ROP_METRICS_PROJECT_LABEL (default: all) — all/breaker/off
 }
 
 // configValues stores a flat map of config values for GetValue lookups.
@@ -134,6 +145,17 @@ func Load() (*Config, error) {
 	// Parse image cache TTL
 	cfg.ImageCacheTTL = envOrDefaultDuration("ROP_IMAGE_CACHE_TTL", 24*time.Hour)
 
+	// Parse resilience settings
+	cfg.RapidFailThreshold = envOrDefaultInt("ROP_RAPID_FAIL_THRESHOLD", 10)
+	cfg.RapidFailWindow = envOrDefaultDuration("ROP_RAPID_FAIL_WINDOW", 5*time.Minute)
+	cfg.FailureMinRuntime = envOrDefaultDuration("ROP_FAILURE_MIN_RUNTIME", 30*time.Second)
+	cfg.BackoffBase = envOrDefaultDuration("ROP_BACKOFF_BASE", 1*time.Minute)
+	cfg.BackoffMax = envOrDefaultDuration("ROP_BACKOFF_MAX", 1*time.Hour)
+	cfg.ReplayQueueCap = envOrDefaultInt("ROP_REPLAY_QUEUE_CAP", 10000)
+
+	// Parse metrics settings
+	cfg.MetricsProjectLabel = envOrDefault("ROP_METRICS_PROJECT_LABEL", "all")
+
 	// Validate required fields
 	if cfg.PlatformEndpoint == "" {
 		return nil, fmt.Errorf("ROP_PLATFORM_ENDPOINT is required but not set")
@@ -170,6 +192,13 @@ func Load() (*Config, error) {
 		"ROP_SKIP_FORKS":            strconv.FormatBool(cfg.SkipForks),
 		"ROP_LOG_LEVEL":             cfg.LogLevel,
 		"ROP_MAX_REQUEST_BODY":      strconv.FormatInt(cfg.MaxRequestBody, 10),
+		"ROP_RAPID_FAIL_THRESHOLD":  strconv.Itoa(cfg.RapidFailThreshold),
+		"ROP_RAPID_FAIL_WINDOW":     cfg.RapidFailWindow.String(),
+		"ROP_FAILURE_MIN_RUNTIME":   cfg.FailureMinRuntime.String(),
+		"ROP_BACKOFF_BASE":          cfg.BackoffBase.String(),
+		"ROP_BACKOFF_MAX":           cfg.BackoffMax.String(),
+		"ROP_REPLAY_QUEUE_CAP":      strconv.Itoa(cfg.ReplayQueueCap),
+		"ROP_METRICS_PROJECT_LABEL": cfg.MetricsProjectLabel,
 	}
 
 	return cfg, nil
