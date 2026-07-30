@@ -236,3 +236,121 @@ func TestAllowDispatch_BackoffExpires(t *testing.T) {
 		t.Error("expected allowed after backoff expires")
 	}
 }
+
+// ---------- T3: Global rapid-fail breaker ----------
+
+func TestBreaker_TripsOnThreshold(t *testing.T) {
+	m, clock := testManager(t, func(c *Config) {
+		c.RapidFailThreshold = 3
+		c.RapidFailWindow = 5 * time.Minute
+	})
+
+	for i := 0; i < 3; i++ {
+		m.Report("proj/a", SourceCron, OutcomeRapidFail, 1*time.Second, 1)
+		clock.Advance(10 * time.Second)
+	}
+
+	snap := m.Snapshot()
+	if snap.State != StateOpen {
+		t.Errorf("state = %q, want open after 3 rapid fails", snap.State)
+	}
+	if snap.OpenReason == "" {
+		t.Error("openReason should be non-empty")
+	}
+}
+
+func TestBreaker_DoesNotTrip_BelowThreshold(t *testing.T) {
+	m, clock := testManager(t, func(c *Config) {
+		c.RapidFailThreshold = 5
+		c.RapidFailWindow = 5 * time.Minute
+	})
+
+	for i := 0; i < 4; i++ {
+		m.Report("proj/a", SourceCron, OutcomeRapidFail, 1*time.Second, 1)
+		clock.Advance(10 * time.Second)
+	}
+
+	snap := m.Snapshot()
+	if snap.State != StateClosed {
+		t.Errorf("state = %q, want closed with only 4/5 rapid fails", snap.State)
+	}
+}
+
+func TestBreaker_FailsOutsideWindowDoNotTrip(t *testing.T) {
+	m, clock := testManager(t, func(c *Config) {
+		c.RapidFailThreshold = 3
+		c.RapidFailWindow = 1 * time.Minute
+	})
+
+	// Spread 3 rapid fails over 3 minutes — only 1 per window.
+	for i := 0; i < 3; i++ {
+		m.Report("proj/a", SourceCron, OutcomeRapidFail, 1*time.Second, 1)
+		clock.Advance(61 * time.Second) // each one falls outside window of previous
+	}
+
+	snap := m.Snapshot()
+	if snap.State != StateClosed {
+		t.Errorf("state = %q, want closed (fails spread outside window)", snap.State)
+	}
+}
+
+func TestBreaker_SlowFailsDoNotTrip(t *testing.T) {
+	m, clock := testManager(t, func(c *Config) {
+		c.RapidFailThreshold = 3
+		c.RapidFailWindow = 5 * time.Minute
+	})
+
+	for i := 0; i < 10; i++ {
+		m.Report("proj/a", SourceCron, OutcomeSlowFail, 60*time.Second, 1)
+		clock.Advance(10 * time.Second)
+	}
+
+	snap := m.Snapshot()
+	if snap.State != StateClosed {
+		t.Errorf("state = %q, want closed (slow fails don't feed breaker)", snap.State)
+	}
+}
+
+func TestBreaker_DiscoveryRapidFailsTrip(t *testing.T) {
+	m, clock := testManager(t, func(c *Config) {
+		c.RapidFailThreshold = 3
+		c.RapidFailWindow = 5 * time.Minute
+	})
+
+	for i := 0; i < 3; i++ {
+		m.Report(DiscoveryProject, SourceCron, OutcomeRapidFail, 1*time.Second, 1)
+		clock.Advance(10 * time.Second)
+	}
+
+	snap := m.Snapshot()
+	if snap.State != StateOpen {
+		t.Errorf("state = %q, want open (discovery rapid fails feed breaker)", snap.State)
+	}
+}
+
+func TestBreaker_BlocksCronAndWebhook(t *testing.T) {
+	m, clock := testManager(t, func(c *Config) {
+		c.RapidFailThreshold = 1
+	})
+
+	m.Report("proj/a", SourceCron, OutcomeRapidFail, 1*time.Second, 1)
+	clock.Advance(1 * time.Second)
+
+	// Cron blocked.
+	allowed, _, reason := m.AllowDispatch("proj/b", SourceCron)
+	if allowed {
+		t.Error("cron should be blocked when breaker open")
+	}
+	if reason != "breaker_open" {
+		t.Errorf("reason = %q, want breaker_open", reason)
+	}
+
+	// Webhook blocked.
+	allowed, _, reason = m.AllowDispatch("proj/b", SourceWebhook)
+	if allowed {
+		t.Error("webhook should be blocked when breaker open")
+	}
+	if reason != "breaker_open" {
+		t.Errorf("reason = %q, want breaker_open", reason)
+	}
+}

@@ -14,6 +14,7 @@ package resilience
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"math"
 	"math/rand"
@@ -230,7 +231,7 @@ var ErrReplayQueueFull = errors.New("resilience: webhook replay queue full")
 // ---------- T2: Per-project backoff + Report ----------
 
 // Report records the outcome of a container run. It updates per-project
-// backoff state. Rapid failures also feed the global breaker window (T3).
+// backoff state and, for rapid failures, the global breaker window.
 func (m *Manager) Report(project string, _ Source, outcome Outcome, _ time.Duration, exitCode int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -248,9 +249,14 @@ func (m *Manager) Report(project string, _ Source, outcome Outcome, _ time.Durat
 	case OutcomeRapidFail:
 		ps.consecutiveFailures++
 		ps.nextAllowedAt = now.Add(m.computeBackoff(ps.consecutiveFailures))
+		// Feed the global rapid-fail window.
+		m.rapidFails = append(m.rapidFails, now)
+		m.trimWindow(now)
+		m.maybeTrip(now)
 	case OutcomeSlowFail:
 		ps.consecutiveFailures++
 		ps.nextAllowedAt = now.Add(m.computeBackoff(ps.consecutiveFailures))
+		// Slow failures do NOT feed the breaker window.
 	}
 }
 
@@ -282,15 +288,57 @@ func (m *Manager) getOrCreateProject(project string) *projectState {
 	return ps
 }
 
+// trimWindow removes rapid-fail timestamps that have fallen outside the
+// sliding window. Must be called with m.mu held.
+func (m *Manager) trimWindow(now time.Time) {
+	cutoff := now.Add(-m.cfg.RapidFailWindow)
+	i := 0
+	for i < len(m.rapidFails) && m.rapidFails[i].Before(cutoff) {
+		i++
+	}
+	if i > 0 {
+		m.rapidFails = m.rapidFails[i:]
+	}
+}
+
+// maybeTrip checks whether the breaker should trip. Must be called with m.mu held.
+func (m *Manager) maybeTrip(now time.Time) {
+	if m.state == StateOpen {
+		return // already open
+	}
+	if len(m.rapidFails) >= m.cfg.RapidFailThreshold {
+		m.state = StateOpen
+		m.openSince = now
+		m.openReason = fmt.Sprintf("%d rapid failures within %s", len(m.rapidFails), m.cfg.RapidFailWindow)
+		m.lastTripped = now
+		m.logger.Warn("circuit breaker tripped",
+			"reason", m.openReason,
+			"rapidFailCount", len(m.rapidFails),
+		)
+	}
+}
+
+// rapidFailCount returns the current number of rapid failures in the window.
+// Must be called with m.mu held.
+func (m *Manager) rapidFailCount(now time.Time) int {
+	m.trimWindow(now)
+	return len(m.rapidFails)
+}
+
 // AllowDispatch reports whether the given project may be dispatched right now.
-// In this stage (T2), only per-project backoff is checked. Breaker and manual
-// bypass are added in T3/T4.
-func (m *Manager) AllowDispatch(project string, _ Source) (allowed bool, retryAfter time.Duration, reason string) {
+// Checks the global breaker (cron/webhook only) and per-project backoff.
+// Manual bypass is added in T4.
+func (m *Manager) AllowDispatch(project string, source Source) (allowed bool, retryAfter time.Duration, reason string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	now := m.cfg.Clock()
 	ps := m.getOrCreateProject(project)
+
+	// Breaker gate (cron + webhook only).
+	if source != SourceManual && m.state == StateOpen {
+		return false, 0, "breaker_open"
+	}
 
 	// Per-project backoff gate.
 	if !ps.nextAllowedAt.IsZero() && now.Before(ps.nextAllowedAt) {
@@ -317,9 +365,15 @@ func (m *Manager) Snapshot() Snapshot {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	now := m.cfg.Clock()
+
 	snap := Snapshot{
 		State:         m.state,
+		OpenSince:     m.openSince,
+		OpenReason:    m.openReason,
+		RapidFailCount: m.rapidFailCount(now),
 		WindowSeconds: int(m.cfg.RapidFailWindow / time.Second),
+		LastTripped:   m.lastTripped,
 		Projects:      make(map[string]ProjectSnapshot, len(m.projects)),
 	}
 
