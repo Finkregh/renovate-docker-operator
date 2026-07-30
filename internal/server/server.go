@@ -20,6 +20,8 @@ import (
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/api"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/discovery"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/executor"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/metrics"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/resilience"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/scheduler"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/statestore"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/webhook"
@@ -36,6 +38,8 @@ type Server struct {
 	server         *http.Server
 	version        string
 	maxRequestBody int64
+	resilience     *resilience.Manager
+	metrics        *metrics.Recorder
 }
 
 // Config holds server configuration.
@@ -67,6 +71,14 @@ func New(
 	}
 }
 
+// SetResilience injects the resilience Manager for breaker API endpoints.
+// Nil-safe: if not set, breaker endpoints return 501.
+func (s *Server) SetResilience(mgr *resilience.Manager) { s.resilience = mgr }
+
+// SetMetrics injects the metrics Recorder for the /metrics endpoint.
+// Nil-safe: if not set, /metrics returns 501.
+func (s *Server) SetMetrics(rec *metrics.Recorder) { s.metrics = rec }
+
 // Start begins listening on the configured port. Non-blocking.
 func (s *Server) Start() {
 	router := mux.NewRouter()
@@ -91,6 +103,12 @@ func (s *Server) Start() {
 	apiSub.HandleFunc("/logs/live", s.getLiveRenovateJobLogs).Methods("GET")
 	apiSub.HandleFunc("/discovery/start", s.runDiscovery).Methods("POST")
 	apiSub.HandleFunc("/executionOptions", s.updateExecutionOptions).Methods("POST")
+	apiSub.HandleFunc("/breaker/state", s.getBreakerState).Methods("GET")
+	apiSub.HandleFunc("/breaker/reset", s.resetBreaker).Methods("POST")
+	apiSub.HandleFunc("/breaker/bypass/{project:.+}", s.bypassBreaker).Methods("POST")
+
+	// Metrics endpoint (no auth — spec §7)
+	router.HandleFunc("/metrics", s.metricsHandler).Methods("GET")
 
 	// UI static file serving (last — catch-all)
 	s.registerUIRoutes(router)
@@ -600,6 +618,101 @@ func (s *Server) serveHTML(w http.ResponseWriter, path string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	_, _ = w.Write(data)
+}
+
+// --- Breaker/Resilience API ---
+
+// actorFromRequest derives an actor string from the request for audit logging.
+// Uses basic-auth username if present, otherwise "anonymous".
+func actorFromRequest(r *http.Request) string {
+	if user, _, ok := r.BasicAuth(); ok && user != "" {
+		return user
+	}
+	return "anonymous"
+}
+
+func (s *Server) getBreakerState(w http.ResponseWriter, _ *http.Request) {
+	if s.resilience == nil {
+		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "resilience not configured"})
+		return
+	}
+	snap := s.resilience.Snapshot()
+	writeJSON(w, http.StatusOK, snap)
+}
+
+func (s *Server) resetBreaker(w http.ResponseWriter, r *http.Request) {
+	if s.resilience == nil {
+		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "resilience not configured"})
+		return
+	}
+	actor := actorFromRequest(r)
+	summary := s.resilience.Reset(actor)
+
+	s.logger.Info("breaker reset via API",
+		"actor", actor,
+		"previousState", string(summary.PreviousState),
+		"replayedProjects", len(summary.ReplayedProjects),
+		"clearedBackoffs", summary.ClearedBackoffs,
+	)
+
+	// Re-schedule replayed projects
+	ctx := r.Context()
+	jobs, err := s.store.ListRenovateJobsFull(ctx)
+	if err != nil {
+		s.logger.Error("failed to list jobs during breaker reset replay", "error", err)
+	} else if len(summary.ReplayedProjects) > 0 && len(jobs) > 0 {
+		// Use the first (usually only) job for scheduling, same as webhook/cron do.
+		jobID := statestore.RenovateJobIdentifier{Name: jobs[0].Name}
+		for _, project := range summary.ReplayedProjects {
+			if err := s.store.UpdateProjectStatus(ctx, project, jobID, &statestore.RenovateStatusUpdate{
+				Status: api.JobStatusScheduled,
+			}); err != nil {
+				s.logger.Error("failed to reschedule replayed project",
+					"project", project, "error", err)
+			}
+		}
+	}
+
+	// Update queue depth metric if available
+	if s.metrics != nil {
+		s.metrics.SetQueueDepth(0) // queue was just drained
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"previousState":    string(summary.PreviousState),
+		"clearedBackoffs":  summary.ClearedBackoffs,
+		"replayedProjects": summary.ReplayedProjects,
+	})
+}
+
+func (s *Server) bypassBreaker(w http.ResponseWriter, r *http.Request) {
+	if s.resilience == nil {
+		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "resilience not configured"})
+		return
+	}
+	project := mux.Vars(r)["project"]
+	if project == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing project"})
+		return
+	}
+	actor := actorFromRequest(r)
+	s.resilience.MarkManual(project)
+	s.logger.Info("manual bypass set via API", "actor", actor, "project", project)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) metricsHandler(w http.ResponseWriter, r *http.Request) {
+	if s.metrics == nil {
+		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "metrics not configured"})
+		return
+	}
+	// Update queue depth from snapshot before serving
+	if s.resilience != nil {
+		snap := s.resilience.Snapshot()
+		s.metrics.SetQueueDepth(snap.PendingReplayCount)
+		s.metrics.SetBreakerState(string(snap.State))
+	}
+	s.metrics.Handler().ServeHTTP(w, r)
 }
 
 // --- Helpers ---
