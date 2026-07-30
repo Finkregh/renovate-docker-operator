@@ -326,8 +326,14 @@ func (m *Manager) rapidFailCount(now time.Time) int {
 }
 
 // AllowDispatch reports whether the given project may be dispatched right now.
-// Checks the global breaker (cron/webhook only) and per-project backoff.
-// Manual bypass is added in T4.
+//
+// Logic:
+//  1. If the project has a manual-pending flag, consume it and return
+//     allowed=true (bypasses both breaker and backoff).
+//  2. For cron/webhook sources: if the breaker is open, deny.
+//  3. If the project has an active backoff (nextAllowedAt in the future), deny.
+//  4. Otherwise allow. Opportunistically drain the replay queue entry for this
+//     project if present.
 func (m *Manager) AllowDispatch(project string, source Source) (allowed bool, retryAfter time.Duration, reason string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -335,32 +341,101 @@ func (m *Manager) AllowDispatch(project string, source Source) (allowed bool, re
 	now := m.cfg.Clock()
 	ps := m.getOrCreateProject(project)
 
-	// Breaker gate (cron + webhook only).
+	// 1. Manual bypass — consumes flag on first check regardless of source.
+	if ps.manualPending {
+		ps.manualPending = false
+		// Opportunistic replay drain.
+		delete(m.pendingReplay, project)
+		return true, 0, ""
+	}
+
+	// 2. Breaker gate (cron + webhook only).
 	if source != SourceManual && m.state == StateOpen {
 		return false, 0, "breaker_open"
 	}
 
-	// Per-project backoff gate.
+	// 3. Per-project backoff gate.
 	if !ps.nextAllowedAt.IsZero() && now.Before(ps.nextAllowedAt) {
 		remaining := ps.nextAllowedAt.Sub(now)
 		return false, remaining, "project_backoff"
 	}
 
+	// 4. Allowed. Opportunistically remove from replay queue.
+	delete(m.pendingReplay, project)
 	return true, 0, ""
 }
 
-// MarkManual arms a single-shot bypass for the project. Stub — implemented in T4.
-func (m *Manager) MarkManual(_ string) {}
-
-// EnqueueWebhookReplay adds the project to the replay queue. Stub — implemented in T4.
-func (m *Manager) EnqueueWebhookReplay(_ string) error { return nil }
-
-// Reset performs a full resilience reset. Stub — implemented in T4.
-func (m *Manager) Reset(_ string) ResetSummary {
-	return ResetSummary{PreviousState: m.state}
+// MarkManual arms a single-shot bypass for the project. The next call to
+// [AllowDispatch] for this project (regardless of source) will return
+// allowed=true, consuming the flag.
+func (m *Manager) MarkManual(project string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ps := m.getOrCreateProject(project)
+	ps.manualPending = true
 }
 
-// Snapshot returns a deep copy of the current state. Partial — fully implemented in T4.
+// EnqueueWebhookReplay adds the project to the replay queue. Idempotent.
+// Returns [ErrReplayQueueFull] when the queue is at capacity.
+func (m *Manager) EnqueueWebhookReplay(project string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, exists := m.pendingReplay[project]; exists {
+		return nil // idempotent
+	}
+	if len(m.pendingReplay) >= m.cfg.ReplayQueueCap {
+		return ErrReplayQueueFull
+	}
+	m.pendingReplay[project] = struct{}{}
+	return nil
+}
+
+// Reset performs a full resilience reset per spec §5.7.
+func (m *Manager) Reset(actor string) ResetSummary {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	now := m.cfg.Clock()
+
+	summary := ResetSummary{
+		PreviousState: m.state,
+	}
+
+	// Drain replay queue.
+	if len(m.pendingReplay) > 0 {
+		summary.ReplayedProjects = make([]string, 0, len(m.pendingReplay))
+		for p := range m.pendingReplay {
+			summary.ReplayedProjects = append(summary.ReplayedProjects, p)
+		}
+	}
+
+	// Count cleared backoffs.
+	for _, ps := range m.projects {
+		if ps.consecutiveFailures > 0 {
+			summary.ClearedBackoffs++
+		}
+	}
+
+	// Clear everything.
+	m.state = StateClosed
+	m.openSince = time.Time{}
+	m.openReason = ""
+	m.rapidFails = m.rapidFails[:0]
+	m.pendingReplay = make(map[string]struct{})
+	m.projects = make(map[string]*projectState)
+	m.lastReset = now
+
+	m.logger.Info("breaker reset",
+		"actor", actor,
+		"previousState", string(summary.PreviousState),
+		"replayed", len(summary.ReplayedProjects),
+		"clearedBackoffs", summary.ClearedBackoffs,
+	)
+
+	return summary
+}
+
+// Snapshot returns a deep copy of the current state.
 func (m *Manager) Snapshot() Snapshot {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -368,13 +443,15 @@ func (m *Manager) Snapshot() Snapshot {
 	now := m.cfg.Clock()
 
 	snap := Snapshot{
-		State:         m.state,
-		OpenSince:     m.openSince,
-		OpenReason:    m.openReason,
-		RapidFailCount: m.rapidFailCount(now),
-		WindowSeconds: int(m.cfg.RapidFailWindow / time.Second),
-		LastTripped:   m.lastTripped,
-		Projects:      make(map[string]ProjectSnapshot, len(m.projects)),
+		State:              m.state,
+		OpenSince:          m.openSince,
+		OpenReason:         m.openReason,
+		RapidFailCount:     m.rapidFailCount(now),
+		WindowSeconds:      int(m.cfg.RapidFailWindow / time.Second),
+		PendingReplayCount: len(m.pendingReplay),
+		LastReset:          m.lastReset,
+		LastTripped:        m.lastTripped,
+		Projects:           make(map[string]ProjectSnapshot, len(m.projects)),
 	}
 
 	for name, ps := range m.projects {
