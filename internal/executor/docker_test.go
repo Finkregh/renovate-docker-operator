@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/api"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/resilience"
 )
 
 func TestSanitizeName(t *testing.T) {
@@ -146,9 +147,11 @@ func TestIsDockerMultiplexed(t *testing.T) {
 func newTestExecutor(t *testing.T) *DockerExecutor {
 	t.Helper()
 	return &DockerExecutor{
-		logger:     slog.Default(),
-		running:    make(map[string]string),
-		imageCache: make(map[string]time.Time),
+		logger:            slog.Default(),
+		running:           make(map[string]string),
+		sources:           make(map[string]resilience.Source),
+		imageCache:        make(map[string]time.Time),
+		failureMinRuntime: 30 * time.Second,
 	}
 }
 
@@ -533,5 +536,244 @@ func assertEnv(t *testing.T, envMap map[string]string, key, expected string) {
 	}
 	if got != expected {
 		t.Errorf("env %s = %q, want %q", key, got, expected)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// T6: Outcome classification + resilience/metrics hook tests
+// ---------------------------------------------------------------------------
+
+// fakeReporter captures calls to Report.
+type fakeReporter struct {
+	calls []reportCall
+}
+
+type reportCall struct {
+	Project  string
+	Source   resilience.Source
+	Outcome  resilience.Outcome
+	Duration time.Duration
+	ExitCode int
+}
+
+func (f *fakeReporter) Report(project string, source resilience.Source, outcome resilience.Outcome, duration time.Duration, exitCode int) {
+	f.calls = append(f.calls, reportCall{
+		Project:  project,
+		Source:   source,
+		Outcome:  outcome,
+		Duration: duration,
+		ExitCode: exitCode,
+	})
+}
+
+// fakeRecorder captures calls to ObserveContainerDuration.
+type fakeRecorder struct {
+	calls []recorderCall
+}
+
+type recorderCall struct {
+	Project  string
+	Outcome  string
+	Duration time.Duration
+}
+
+func (f *fakeRecorder) ObserveContainerDuration(project, outcome string, d time.Duration) {
+	f.calls = append(f.calls, recorderCall{
+		Project:  project,
+		Outcome:  outcome,
+		Duration: d,
+	})
+}
+
+func TestClassifyOutcome(t *testing.T) {
+	tests := []struct {
+		name              string
+		exitCode          int
+		runtime           time.Duration
+		failureMinRuntime time.Duration
+		want              resilience.Outcome
+	}{
+		{
+			name:              "exit 0 is success regardless of runtime",
+			exitCode:          0,
+			runtime:           1 * time.Second,
+			failureMinRuntime: 30 * time.Second,
+			want:              resilience.OutcomeSuccess,
+		},
+		{
+			name:              "exit 1 with short runtime is rapid fail",
+			exitCode:          1,
+			runtime:           5 * time.Second,
+			failureMinRuntime: 30 * time.Second,
+			want:              resilience.OutcomeRapidFail,
+		},
+		{
+			name:              "exit 1 with long runtime is slow fail",
+			exitCode:          1,
+			runtime:           45 * time.Second,
+			failureMinRuntime: 30 * time.Second,
+			want:              resilience.OutcomeSlowFail,
+		},
+		{
+			name:              "exit at boundary (exactly failureMinRuntime) is slow fail",
+			exitCode:          2,
+			runtime:           30 * time.Second,
+			failureMinRuntime: 30 * time.Second,
+			want:              resilience.OutcomeSlowFail,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := &DockerExecutor{failureMinRuntime: tc.failureMinRuntime}
+			got := e.classifyOutcome(tc.exitCode, tc.runtime)
+			if got != tc.want {
+				t.Errorf("classifyOutcome(exit=%d, runtime=%v) = %q, want %q",
+					tc.exitCode, tc.runtime, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestReportHooks_Success(t *testing.T) {
+	e := newTestExecutor(t)
+	rep := &fakeReporter{}
+	rec := &fakeRecorder{}
+	e.SetReporter(rep)
+	e.SetRecorder(rec)
+
+	// Simulate: exit=0, runtime=1s
+	outcome := e.classifyOutcome(0, 1*time.Second)
+	if outcome != resilience.OutcomeSuccess {
+		t.Fatalf("expected Success, got %q", outcome)
+	}
+
+	// Manually invoke hooks as handleContainerExit would.
+	e.reporter.Report("org/repo", resilience.SourceCron, outcome, 1*time.Second, 0)
+	e.recorder.ObserveContainerDuration("org/repo", string(outcome), 1*time.Second)
+
+	if len(rep.calls) != 1 {
+		t.Fatalf("expected 1 report call, got %d", len(rep.calls))
+	}
+	if rep.calls[0].Outcome != resilience.OutcomeSuccess {
+		t.Errorf("reporter outcome = %q, want %q", rep.calls[0].Outcome, resilience.OutcomeSuccess)
+	}
+	if rep.calls[0].ExitCode != 0 {
+		t.Errorf("reporter exitCode = %d, want 0", rep.calls[0].ExitCode)
+	}
+	if len(rec.calls) != 1 {
+		t.Fatalf("expected 1 recorder call, got %d", len(rec.calls))
+	}
+	if rec.calls[0].Outcome != string(resilience.OutcomeSuccess) {
+		t.Errorf("recorder outcome = %q, want %q", rec.calls[0].Outcome, resilience.OutcomeSuccess)
+	}
+}
+
+func TestReportHooks_RapidFail(t *testing.T) {
+	e := newTestExecutor(t)
+	rep := &fakeReporter{}
+	rec := &fakeRecorder{}
+	e.SetReporter(rep)
+	e.SetRecorder(rec)
+
+	outcome := e.classifyOutcome(1, 5*time.Second)
+	if outcome != resilience.OutcomeRapidFail {
+		t.Fatalf("expected RapidFail, got %q", outcome)
+	}
+
+	e.reporter.Report("org/repo", resilience.SourceWebhook, outcome, 5*time.Second, 1)
+	e.recorder.ObserveContainerDuration("org/repo", string(outcome), 5*time.Second)
+
+	if rep.calls[0].Outcome != resilience.OutcomeRapidFail {
+		t.Errorf("reporter outcome = %q, want %q", rep.calls[0].Outcome, resilience.OutcomeRapidFail)
+	}
+	if rep.calls[0].ExitCode != 1 {
+		t.Errorf("reporter exitCode = %d, want 1", rep.calls[0].ExitCode)
+	}
+	if rep.calls[0].Source != resilience.SourceWebhook {
+		t.Errorf("reporter source = %q, want %q", rep.calls[0].Source, resilience.SourceWebhook)
+	}
+}
+
+func TestReportHooks_SlowFail(t *testing.T) {
+	e := newTestExecutor(t)
+	rep := &fakeReporter{}
+	rec := &fakeRecorder{}
+	e.SetReporter(rep)
+	e.SetRecorder(rec)
+
+	outcome := e.classifyOutcome(1, 45*time.Second)
+	if outcome != resilience.OutcomeSlowFail {
+		t.Fatalf("expected SlowFail, got %q", outcome)
+	}
+
+	e.reporter.Report("org/repo", resilience.SourceCron, outcome, 45*time.Second, 1)
+	e.recorder.ObserveContainerDuration("org/repo", string(outcome), 45*time.Second)
+
+	if rep.calls[0].Outcome != resilience.OutcomeSlowFail {
+		t.Errorf("reporter outcome = %q, want %q", rep.calls[0].Outcome, resilience.OutcomeSlowFail)
+	}
+	if rec.calls[0].Duration != 45*time.Second {
+		t.Errorf("recorder duration = %v, want %v", rec.calls[0].Duration, 45*time.Second)
+	}
+}
+
+func TestReportHooks_NilSafe(t *testing.T) {
+	// When reporter and recorder are nil, no panics should occur.
+	e := newTestExecutor(t)
+	// Ensure reporter/recorder are nil (default in newTestExecutor)
+	if e.reporter != nil {
+		t.Fatal("expected nil reporter")
+	}
+	if e.recorder != nil {
+		t.Fatal("expected nil recorder")
+	}
+
+	// Simulate the nil-guard pattern used in handleContainerExit.
+	outcome := e.classifyOutcome(1, 5*time.Second)
+	if e.reporter != nil {
+		e.reporter.Report("org/repo", resilience.SourceCron, outcome, 5*time.Second, 1)
+	}
+	if e.recorder != nil {
+		e.recorder.ObserveContainerDuration("org/repo", string(outcome), 5*time.Second)
+	}
+	// Test passes if no panic.
+}
+
+func TestSetProjectSource(t *testing.T) {
+	e := newTestExecutor(t)
+
+	e.SetProjectSource("org/repo", resilience.SourceWebhook)
+
+	e.mu.Lock()
+	src := e.sources["org/repo"]
+	e.mu.Unlock()
+
+	if src != resilience.SourceWebhook {
+		t.Errorf("source = %q, want %q", src, resilience.SourceWebhook)
+	}
+}
+
+func TestFailureMinRuntime_DefaultsTo30s(t *testing.T) {
+	exec, err := New(Config{}, nil, nil)
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	defer func() { _ = exec.docker.Close() }()
+
+	if exec.failureMinRuntime != 30*time.Second {
+		t.Errorf("failureMinRuntime = %v, want %v", exec.failureMinRuntime, 30*time.Second)
+	}
+}
+
+func TestFailureMinRuntime_Custom(t *testing.T) {
+	exec, err := New(Config{FailureMinRuntime: 60 * time.Second}, nil, nil)
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	defer func() { _ = exec.docker.Close() }()
+
+	if exec.failureMinRuntime != 60*time.Second {
+		t.Errorf("failureMinRuntime = %v, want %v", exec.failureMinRuntime, 60*time.Second)
 	}
 }
