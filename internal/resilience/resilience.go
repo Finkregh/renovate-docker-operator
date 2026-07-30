@@ -15,6 +15,8 @@ package resilience
 import (
 	"errors"
 	"log/slog"
+	"math"
+	"math/rand"
 	"sync"
 	"time"
 )
@@ -91,6 +93,9 @@ type Config struct {
 	// Clock is the wall-clock source. Tests inject a fake clock; production
 	// leaves this nil and [New] substitutes [time.Now].
 	Clock func() time.Time
+	// Rand is the random source for jitter. Tests can inject a deterministic
+	// source. If nil, a default source is used.
+	Rand *rand.Rand
 }
 
 func (c Config) withDefaults() Config {
@@ -114,6 +119,9 @@ func (c Config) withDefaults() Config {
 	}
 	if c.Clock == nil {
 		c.Clock = time.Now
+	}
+	if c.Rand == nil {
+		c.Rand = rand.New(rand.NewSource(time.Now().UnixNano()))
 	}
 	return c
 }
@@ -189,15 +197,15 @@ type ProjectSnapshot struct {
 // for the UI or translate into metrics. Callers may mutate the returned value
 // freely — it is a deep copy.
 type Snapshot struct {
-	State              State                       `json:"state"`
-	OpenSince          time.Time                   `json:"openSince"`
-	OpenReason         string                      `json:"openReason"`
-	RapidFailCount     int                         `json:"rapidFailures5m"`
-	WindowSeconds      int                         `json:"windowSeconds"`
-	PendingReplayCount int                         `json:"pendingReplayCount"`
-	LastReset          time.Time                   `json:"lastReset"`
-	LastTripped        time.Time                   `json:"lastTripped"`
-	Projects           map[string]ProjectSnapshot  `json:"projects"`
+	State              State                      `json:"state"`
+	OpenSince          time.Time                  `json:"openSince"`
+	OpenReason         string                     `json:"openReason"`
+	RapidFailCount     int                        `json:"rapidFailures5m"`
+	WindowSeconds      int                        `json:"windowSeconds"`
+	PendingReplayCount int                        `json:"pendingReplayCount"`
+	LastReset          time.Time                  `json:"lastReset"`
+	LastTripped        time.Time                  `json:"lastTripped"`
+	Projects           map[string]ProjectSnapshot `json:"projects"`
 }
 
 // ResetSummary is returned by [Manager.Reset] so the caller can log the outcome
@@ -219,36 +227,112 @@ type ResetSummary struct {
 // treat this as a rare backstop and surface 503 to the webhook platform.
 var ErrReplayQueueFull = errors.New("resilience: webhook replay queue full")
 
-// --- stubs implemented by T2/T3/T4 ---
+// ---------- T2: Per-project backoff + Report ----------
 
-// Report records the outcome of a container run.
-// Implemented in T2 (backoff) and T3 (breaker window).
-func (m *Manager) Report(_ string, _ Source, _ Outcome, _ time.Duration, _ int) {}
+// Report records the outcome of a container run. It updates per-project
+// backoff state. Rapid failures also feed the global breaker window (T3).
+func (m *Manager) Report(project string, _ Source, outcome Outcome, _ time.Duration, exitCode int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	now := m.cfg.Clock()
+
+	ps := m.getOrCreateProject(project)
+	ps.lastExitCode = exitCode
+	ps.lastReportAt = now
+
+	switch outcome {
+	case OutcomeSuccess:
+		ps.consecutiveFailures = 0
+		ps.nextAllowedAt = time.Time{}
+	case OutcomeRapidFail:
+		ps.consecutiveFailures++
+		ps.nextAllowedAt = now.Add(m.computeBackoff(ps.consecutiveFailures))
+	case OutcomeSlowFail:
+		ps.consecutiveFailures++
+		ps.nextAllowedAt = now.Add(m.computeBackoff(ps.consecutiveFailures))
+	}
+}
+
+// computeBackoff calculates the backoff duration for a given failure count.
+// Formula: base * 2^(n-1), capped at max, with ±20% uniform jitter.
+// Must be called with m.mu held (accesses m.cfg.Rand).
+func (m *Manager) computeBackoff(failures int) time.Duration {
+	if failures <= 0 {
+		return 0
+	}
+	exp := math.Pow(2, float64(failures-1))
+	raw := float64(m.cfg.BackoffBase) * exp
+	if raw > float64(m.cfg.BackoffMax) {
+		raw = float64(m.cfg.BackoffMax)
+	}
+	// ±20% jitter: multiply by [0.8, 1.2)
+	jitter := 0.8 + m.cfg.Rand.Float64()*0.4
+	return time.Duration(raw * jitter)
+}
+
+// getOrCreateProject returns the per-project state, creating it if needed.
+// Must be called with m.mu held.
+func (m *Manager) getOrCreateProject(project string) *projectState {
+	ps, ok := m.projects[project]
+	if !ok {
+		ps = &projectState{}
+		m.projects[project] = ps
+	}
+	return ps
+}
 
 // AllowDispatch reports whether the given project may be dispatched right now.
-// Implemented in T2/T3/T4.
-func (m *Manager) AllowDispatch(_ string, _ Source) (allowed bool, retryAfter time.Duration, reason string) {
+// In this stage (T2), only per-project backoff is checked. Breaker and manual
+// bypass are added in T3/T4.
+func (m *Manager) AllowDispatch(project string, _ Source) (allowed bool, retryAfter time.Duration, reason string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	now := m.cfg.Clock()
+	ps := m.getOrCreateProject(project)
+
+	// Per-project backoff gate.
+	if !ps.nextAllowedAt.IsZero() && now.Before(ps.nextAllowedAt) {
+		remaining := ps.nextAllowedAt.Sub(now)
+		return false, remaining, "project_backoff"
+	}
+
 	return true, 0, ""
 }
 
-// MarkManual arms a single-shot bypass for the project. Implemented in T4.
+// MarkManual arms a single-shot bypass for the project. Stub — implemented in T4.
 func (m *Manager) MarkManual(_ string) {}
 
-// EnqueueWebhookReplay adds the project to the replay queue. Implemented in T4.
+// EnqueueWebhookReplay adds the project to the replay queue. Stub — implemented in T4.
 func (m *Manager) EnqueueWebhookReplay(_ string) error { return nil }
 
-// Reset performs a full resilience reset. Implemented in T4.
+// Reset performs a full resilience reset. Stub — implemented in T4.
 func (m *Manager) Reset(_ string) ResetSummary {
 	return ResetSummary{PreviousState: m.state}
 }
 
-// Snapshot returns a deep copy of the current state. Implemented in T4.
+// Snapshot returns a deep copy of the current state. Partial — fully implemented in T4.
 func (m *Manager) Snapshot() Snapshot {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return Snapshot{
+
+	snap := Snapshot{
 		State:         m.state,
 		WindowSeconds: int(m.cfg.RapidFailWindow / time.Second),
-		Projects:      map[string]ProjectSnapshot{},
+		Projects:      make(map[string]ProjectSnapshot, len(m.projects)),
 	}
+
+	for name, ps := range m.projects {
+		snap.Projects[name] = ProjectSnapshot{
+			Project:             name,
+			ConsecutiveFailures: ps.consecutiveFailures,
+			NextAllowedAt:       ps.nextAllowedAt,
+			LastExitCode:        ps.lastExitCode,
+			LastReportAt:        ps.lastReportAt,
+			ManualPending:       ps.manualPending,
+		}
+	}
+
+	return snap
 }
