@@ -73,7 +73,12 @@ func New(
 
 // SetResilience injects the resilience Manager for breaker API endpoints.
 // Nil-safe: if not set, breaker endpoints return 501.
-func (s *Server) SetResilience(mgr *resilience.Manager) { s.resilience = mgr }
+func (s *Server) SetResilience(mgr *resilience.Manager) {
+	s.resilience = mgr
+	if s.webhook != nil {
+		s.webhook.SetResilience(mgr)
+	}
+}
 
 // SetMetrics injects the metrics Recorder for the /metrics endpoint.
 // Nil-safe: if not set, /metrics returns 501.

@@ -4,15 +4,18 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/api"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/resilience"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/statestore"
 )
 
@@ -569,5 +572,146 @@ func TestAuthenticate(t *testing.T) {
 				t.Errorf("len(AuthResult.Methods) = %d, want %d", len(authResult.Methods), tt.wantMethodsLen)
 			}
 		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Webhook resilience gate tests
+// ---------------------------------------------------------------------------
+
+// webhookGateStore extends mockStore to support the ListRenovateJobsFull call
+// needed for HandleForgejo to resolve a job.
+type webhookGateStore struct {
+	mockStore
+	scheduledProjects map[string]bool
+}
+
+func newWebhookGateStore() *webhookGateStore {
+	return &webhookGateStore{
+		mockStore:         mockStore{},
+		scheduledProjects: make(map[string]bool),
+	}
+}
+
+func (s *webhookGateStore) ListRenovateJobsFull(_ context.Context) ([]api.RenovateJob, error) {
+	return []api.RenovateJob{
+		{
+			Name: "renovate",
+			Spec: api.RenovateJobSpec{
+				Webhook: &api.RenovateWebhook{Enabled: true},
+			},
+			Status: api.RenovateJobStatus{
+				Projects: []api.ProjectStatus{{Name: "org/repo", Status: "idle"}},
+			},
+		},
+	}, nil
+}
+
+func (s *webhookGateStore) UpdateProjectStatus(_ context.Context, project string, _ statestore.RenovateJobIdentifier, upd *statestore.RenovateStatusUpdate) error {
+	if upd.Status == api.JobStatusScheduled {
+		s.scheduledProjects[project] = true
+	}
+	return nil
+}
+
+// makePushPayload creates a valid Forgejo push webhook JSON body.
+func makePushPayload(repo string) string {
+	return `{"action":"","ref":"refs/heads/main","before":"aaaa","after":"bbbb","repository":{"id":1,"name":"repo","full_name":"` + repo + `"}}`
+}
+
+func TestHandleForgejo_BreakerClosed_DispatchAllowed(t *testing.T) {
+	store := newWebhookGateStore()
+	mgr := resilience.New(resilience.Config{}, nil) // breaker starts closed
+
+	h := NewHandler(store, slog.Default(), 1<<20)
+	h.SetResilience(mgr)
+
+	body := makePushPayload("org/repo")
+	req := httptest.NewRequest("POST", "/webhook/v1/forgejo?job=renovate", strings.NewReader(body))
+	req.Header.Set("X-Forgejo-Event", "push")
+	w := httptest.NewRecorder()
+
+	h.HandleForgejo(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
+	}
+	if !store.scheduledProjects["org/repo"] {
+		t.Error("expected project to be scheduled in state store")
+	}
+}
+
+func TestHandleForgejo_BreakerOpen_EnqueueReplay(t *testing.T) {
+	store := newWebhookGateStore()
+	mgr := resilience.New(resilience.Config{RapidFailThreshold: 1}, nil)
+	// Trip the breaker.
+	mgr.Report("x", resilience.SourceCron, resilience.OutcomeRapidFail, 0, 1)
+
+	h := NewHandler(store, slog.Default(), 1<<20)
+	h.SetResilience(mgr)
+
+	body := makePushPayload("org/repo")
+	req := httptest.NewRequest("POST", "/webhook/v1/forgejo?job=renovate", strings.NewReader(body))
+	req.Header.Set("X-Forgejo-Event", "push")
+	w := httptest.NewRecorder()
+
+	h.HandleForgejo(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]string
+	_ = json.NewDecoder(w.Body).Decode(&resp)
+	if resp["queued"] != "true" {
+		t.Errorf("expected queued=true, got %v", resp)
+	}
+	if store.scheduledProjects["org/repo"] {
+		t.Error("expected project NOT to be scheduled when breaker is open")
+	}
+}
+
+func TestHandleForgejo_BreakerOpen_QueueFull_503(t *testing.T) {
+	store := newWebhookGateStore()
+	mgr := resilience.New(resilience.Config{
+		RapidFailThreshold: 1,
+		ReplayQueueCap:     1, // tiny queue
+	}, nil)
+	// Trip the breaker.
+	mgr.Report("x", resilience.SourceCron, resilience.OutcomeRapidFail, 0, 1)
+	// Fill the queue.
+	_ = mgr.EnqueueWebhookReplay("other/project")
+
+	h := NewHandler(store, slog.Default(), 1<<20)
+	h.SetResilience(mgr)
+
+	body := makePushPayload("org/repo")
+	req := httptest.NewRequest("POST", "/webhook/v1/forgejo?job=renovate", strings.NewReader(body))
+	req.Header.Set("X-Forgejo-Event", "push")
+	w := httptest.NewRecorder()
+
+	h.HandleForgejo(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleForgejo_NilResilience_BehavesAsToday(t *testing.T) {
+	store := newWebhookGateStore()
+	// No resilience manager injected — should behave as before.
+	h := NewHandler(store, slog.Default(), 1<<20)
+
+	body := makePushPayload("org/repo")
+	req := httptest.NewRequest("POST", "/webhook/v1/forgejo?job=renovate", strings.NewReader(body))
+	req.Header.Set("X-Forgejo-Event", "push")
+	w := httptest.NewRecorder()
+
+	h.HandleForgejo(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
+	}
+	if !store.scheduledProjects["org/repo"] {
+		t.Error("expected project to be scheduled (nil resilience = no gate)")
 	}
 }

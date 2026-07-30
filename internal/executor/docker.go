@@ -93,9 +93,9 @@ type DockerExecutor struct {
 
 	// Runtime state
 	mu         sync.Mutex
-	running    map[string]string              // project → containerID
-	sources    map[string]resilience.Source    // project → dispatch source
-	imageCache map[string]time.Time           // image tag → last-checked time
+	running    map[string]string            // project → containerID
+	sources    map[string]resilience.Source // project → dispatch source
+	imageCache map[string]time.Time         // image tag → last-checked time
 	stopCh     chan struct{}
 
 	// Discovery tracking

@@ -175,7 +175,7 @@ func Load() (*Config, error) {
 		"ROP_PARALLELISM":           strconv.Itoa(cfg.Parallelism),
 		"ROP_JOB_TIMEOUT":           strconv.Itoa(jobTimeoutSec),
 		"ROP_SHUTDOWN_GRACE_PERIOD": strconv.Itoa(gracePeriodSec),
-		"RENOVATE_PLATFORM":              cfg.Platform,
+		"RENOVATE_PLATFORM":         cfg.Platform,
 		"ROP_PLATFORM_ENDPOINT":     cfg.PlatformEndpoint,
 		"RENOVATE_TOKEN":            cfg.PlatformToken,
 		"ROP_CRON_SCHEDULE":         cfg.CronSchedule,

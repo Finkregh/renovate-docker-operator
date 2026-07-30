@@ -65,10 +65,10 @@ type Recorder struct {
 	http *httpMetrics
 
 	// --- counters ---
-	containerStarts  *prometheus.CounterVec
-	containerExits   *prometheus.CounterVec
-	rapidFailsTotal  prometheus.Counter
-	dispatchTotal    *prometheus.CounterVec
+	containerStarts    *prometheus.CounterVec
+	containerExits     *prometheus.CounterVec
+	rapidFailsTotal    prometheus.Counter
+	dispatchTotal      *prometheus.CounterVec
 	breakerTransitions *prometheus.CounterVec
 
 	// --- histograms ---
