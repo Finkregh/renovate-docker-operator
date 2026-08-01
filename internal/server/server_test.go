@@ -279,7 +279,7 @@ func TestMetricsEndpoint(t *testing.T) {
 }
 
 func TestActorFromRequest_BasicAuth(t *testing.T) {
-	req := httptest.NewRequest("POST", "/", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/", nil)
 	req.SetBasicAuth("ops-user", "secret")
 	if got := actorFromRequest(req); got != "ops-user" {
 		t.Errorf("expected actor=ops-user, got %q", got)
@@ -287,7 +287,7 @@ func TestActorFromRequest_BasicAuth(t *testing.T) {
 }
 
 func TestActorFromRequest_Anonymous(t *testing.T) {
-	req := httptest.NewRequest("POST", "/", nil)
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/", nil)
 	if got := actorFromRequest(req); got != "anonymous" {
 		t.Errorf("expected actor=anonymous, got %q", got)
 	}

@@ -1,6 +1,7 @@
 package resilience
 
 import (
+	"errors"
 	"fmt"
 	"math/rand"
 	"sync"
@@ -472,7 +473,7 @@ func TestReplayQueue_CapEnforced(t *testing.T) {
 
 	// 4th should fail.
 	err := m.EnqueueWebhookReplay("proj/overflow")
-	if err != ErrReplayQueueFull {
+	if !errors.Is(err, ErrReplayQueueFull) {
 		t.Errorf("err = %v, want ErrReplayQueueFull", err)
 	}
 }

@@ -56,12 +56,12 @@ const (
 type Outcome string
 
 const (
-	// OutcomeSuccess: exit code 0.
+	// OutcomeSuccess represents exit code 0.
 	OutcomeSuccess Outcome = "success"
-	// OutcomeRapidFail: non-zero exit AND container runtime < [Config.FailureMinRuntime].
+	// OutcomeRapidFail represents non-zero exit AND container runtime < [Config.FailureMinRuntime].
 	// Feeds both the per-project backoff and the global rapid-fail window.
 	OutcomeRapidFail Outcome = "rapid_failure"
-	// OutcomeSlowFail: non-zero exit AND runtime ≥ [Config.FailureMinRuntime].
+	// OutcomeSlowFail represents non-zero exit AND runtime ≥ [Config.FailureMinRuntime].
 	// Feeds per-project backoff only; does NOT count toward the breaker
 	// (spec §5.2 — a slow crash is a real error but not a "run loop of doom").
 	OutcomeSlowFail Outcome = "slow_failure"

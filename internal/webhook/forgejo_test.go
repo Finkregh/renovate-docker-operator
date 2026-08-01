@@ -615,7 +615,8 @@ func (s *webhookGateStore) UpdateProjectStatus(_ context.Context, project string
 }
 
 // makePushPayload creates a valid Forgejo push webhook JSON body.
-func makePushPayload(repo string) string {
+func makePushPayload(_ string) string {
+	const repo = "org/repo"
 	return `{"action":"","ref":"refs/heads/main","before":"aaaa","after":"bbbb","repository":{"id":1,"name":"repo","full_name":"` + repo + `"}}`
 }
 
@@ -627,7 +628,7 @@ func TestHandleForgejo_BreakerClosed_DispatchAllowed(t *testing.T) {
 	h.SetResilience(mgr)
 
 	body := makePushPayload("org/repo")
-	req := httptest.NewRequest("POST", "/webhook/v1/forgejo?job=renovate", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/webhook/v1/forgejo?job=renovate", strings.NewReader(body))
 	req.Header.Set("X-Forgejo-Event", "push")
 	w := httptest.NewRecorder()
 
@@ -651,7 +652,7 @@ func TestHandleForgejo_BreakerOpen_EnqueueReplay(t *testing.T) {
 	h.SetResilience(mgr)
 
 	body := makePushPayload("org/repo")
-	req := httptest.NewRequest("POST", "/webhook/v1/forgejo?job=renovate", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/webhook/v1/forgejo?job=renovate", strings.NewReader(body))
 	req.Header.Set("X-Forgejo-Event", "push")
 	w := httptest.NewRecorder()
 
@@ -685,7 +686,7 @@ func TestHandleForgejo_BreakerOpen_QueueFull_503(t *testing.T) {
 	h.SetResilience(mgr)
 
 	body := makePushPayload("org/repo")
-	req := httptest.NewRequest("POST", "/webhook/v1/forgejo?job=renovate", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/webhook/v1/forgejo?job=renovate", strings.NewReader(body))
 	req.Header.Set("X-Forgejo-Event", "push")
 	w := httptest.NewRecorder()
 
@@ -702,7 +703,7 @@ func TestHandleForgejo_NilResilience_BehavesAsToday(t *testing.T) {
 	h := NewHandler(store, slog.Default(), 1<<20)
 
 	body := makePushPayload("org/repo")
-	req := httptest.NewRequest("POST", "/webhook/v1/forgejo?job=renovate", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(context.Background(), "POST", "/webhook/v1/forgejo?job=renovate", strings.NewReader(body))
 	req.Header.Set("X-Forgejo-Event", "push")
 	w := httptest.NewRecorder()
 

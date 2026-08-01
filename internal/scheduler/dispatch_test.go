@@ -206,7 +206,7 @@ func TestDispatchProjects_NilMetrics_NoPanic(t *testing.T) {
 	}
 	d := NewDispatcher(gate, nil, slog.Default())
 
-	fn := func(project string) error { return nil }
+	fn := func(_ string) error { return nil }
 
 	// Should not panic with nil metrics
 	count, err := d.DispatchProjects([]string{"org/x", "org/y"}, resilience.SourceCron, fn)
