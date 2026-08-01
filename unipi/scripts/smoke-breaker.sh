@@ -10,8 +10,8 @@ set -euo pipefail
 BASE="${BASE:-http://localhost:8080}"
 
 fail() {
-  echo "FAIL: $1" >&2
-  exit 1
+    echo "FAIL: $1" >&2
+    exit 1
 }
 
 echo "=== step 1: GET /api/v1/breaker/state ==="
@@ -29,7 +29,7 @@ echo ""
 echo "=== step 3: POST /api/v1/breaker/bypass/smoke/example ==="
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "${BASE}/api/v1/breaker/bypass/smoke/example")
 if [ "$HTTP_CODE" != "204" ]; then
-  fail "bypass returned HTTP $HTTP_CODE, expected 204"
+    fail "bypass returned HTTP $HTTP_CODE, expected 204"
 fi
 echo "OK — bypass returned 204"
 
