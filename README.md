@@ -181,6 +181,35 @@ OIDC authentication is not yet implemented but is planned. The following environ
 | `ROP_DISCOVER_TOPICS`   | _(empty)_ | Comma-separated topics to filter by                       |
 | `ROP_SKIP_FORKS`        | `false`   | Skip forked repositories                                  |
 
+## Resilience & Metrics
+
+The operator includes a **rapid-fail circuit breaker** that protects against cascading failures when the underlying environment is unhealthy (e.g., invalid token, unreachable registry). Per-project **exponential backoff** prevents a single broken repository from monopolising dispatch slots. Operators can issue a **manual bypass** for individual projects, and the system exposes **Prometheus metrics** on `/metrics` for alerting and dashboards.
+
+### Configuration
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `ROP_RAPID_FAIL_THRESHOLD` | `10` | Number of rapid failures within the window to trip the breaker |
+| `ROP_RAPID_FAIL_WINDOW` | `5m` | Sliding window for counting rapid failures |
+| `ROP_FAILURE_MIN_RUNTIME` | `30s` | Containers exiting before this duration are classified as rapid failures |
+| `ROP_BACKOFF_BASE` | `30s` | Base delay for per-project exponential backoff |
+| `ROP_BACKOFF_MAX` | `30m` | Maximum per-project backoff cap |
+| `ROP_REPLAY_QUEUE_CAP` | `10000` | Maximum queued webhook events when the breaker is open |
+| `ROP_METRICS_PROJECT_LABEL` | `all` | Project label cardinality on metrics (`all`, `breaker`, `off`) |
+
+### API Surface
+
+- `GET /api/v1/breaker/state` — current breaker snapshot (state, per-project backoffs, replay queue depth)
+- `POST /api/v1/breaker/reset` — full reset: closes breaker, clears all backoffs, drains replay queue
+- `POST /api/v1/breaker/bypass/{org/repo}` — single-shot manual override for one project
+- `GET /metrics` — Prometheus text exposition format
+
+### Webhook Behaviour When Breaker Is Open
+
+When the breaker is open, webhooks return **202 Accepted** and their events are queued; the queue drains automatically on reset (up to `ROP_REPLAY_QUEUE_CAP`, defaults 10 000, beyond which a 503 is returned).
+
+> **Ops runbook:** See [`unipi/docs/runbooks/breaker.md`](unipi/docs/runbooks/breaker.md) for diagnosis and recovery procedures.
+
 ## API Endpoints
 
 | Method | Path                                   | Description                         |
