@@ -439,15 +439,15 @@ func TestNew_Defaults(t *testing.T) {
 
 func TestNew_CustomConfig(t *testing.T) {
 	cfg := Config{
-		Image:                   "custom/image:v1",
-		Network:                 "host",
-		CacheVolume:             "my-vol",
+		Image:                    "custom/image:v1",
+		Network:                  "host",
+		CacheVolume:              "my-vol",
 		ContainerbaseCacheVolume: "my-cb-vol",
-		Parallelism:             8,
-		JobTimeout:              10 * time.Minute,
-		GracePeriod:             30 * time.Second,
-		ImagePullPolicy:         "always",
-		ImageCacheTTL:           5 * time.Minute,
+		Parallelism:              8,
+		JobTimeout:               10 * time.Minute,
+		GracePeriod:              30 * time.Second,
+		ImagePullPolicy:          "always",
+		ImageCacheTTL:            5 * time.Minute,
 	}
 
 	exec, err := New(cfg, nil, slog.Default())
@@ -485,6 +485,30 @@ func TestNew_CustomConfig(t *testing.T) {
 
 	// Cleanup
 	_ = exec.docker.Close()
+}
+
+func TestHostBinds(t *testing.T) {
+	cfg := Config{
+		CacheVolume:              "cv",
+		ContainerbaseCacheVolume: "ccv",
+	}
+
+	exec, err := New(cfg, nil, slog.Default())
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	defer func() { _ = exec.docker.Close() }()
+
+	got := exec.hostBinds()
+	if len(got) != 2 {
+		t.Fatalf("hostBinds() returned %d entries, want 2", len(got))
+	}
+	if got[0] != "cv:/tmp/renovate" {
+		t.Errorf("hostBinds()[0] = %q, want %q", got[0], "cv:/tmp/renovate")
+	}
+	if got[1] != "ccv:/tmp/containerbase/cache" {
+		t.Errorf("hostBinds()[1] = %q, want %q", got[1], "ccv:/tmp/containerbase/cache")
+	}
 }
 
 func TestGetRunningContainerID_NotFound(t *testing.T) {

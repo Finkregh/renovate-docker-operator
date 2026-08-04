@@ -180,6 +180,20 @@ func (e *DockerExecutor) SetReporter(r ResilienceReporter) { e.reporter = r }
 // SetRecorder injects the metrics recorder. Nil is safe (no-op).
 func (e *DockerExecutor) SetRecorder(r MetricsRecorder) { e.recorder = r }
 
+// hostBinds returns the bind mounts every renovate child container needs:
+//   - <cacheVolume>:/tmp/renovate           (Renovate's own base/cache dir)
+//   - <containerbaseCacheVolume>:/tmp/containerbase/cache
+//     (Containerbase-managed tool caches)
+//
+// Both volumes are required together — dropping either breaks caching for one
+// class of tools. See .unipi/docs/generated/2026-08-04-permission-issues-uv-nix.md.
+func (e *DockerExecutor) hostBinds() []string {
+	return []string{
+		e.cacheVolume + ":/tmp/renovate",
+		e.containerbaseCacheVolume + ":/tmp/containerbase/cache",
+	}
+}
+
 // SetProjectSource records the dispatch source for a project so that the exit
 // handler can pass it to the resilience reporter. Call this before the
 // dispatch loop picks up the project. Safe to call concurrently.
@@ -303,10 +317,7 @@ func (e *DockerExecutor) DispatchDiscovery(ctx context.Context, job *api.Renovat
 	}
 
 	hostCfg := &container.HostConfig{
-		Binds: []string{
-			e.cacheVolume + ":/tmp/renovate",
-			e.containerbaseCacheVolume + ":/tmp/containerbase/cache",
-		},
+		Binds:       e.hostBinds(),
 		NetworkMode: container.NetworkMode(e.network),
 	}
 
@@ -461,10 +472,7 @@ func (e *DockerExecutor) runDiscoveryContainer(ctx context.Context, job *api.Ren
 	}
 
 	hostCfg := &container.HostConfig{
-		Binds: []string{
-			e.cacheVolume + ":/tmp/renovate",
-			e.containerbaseCacheVolume + ":/tmp/containerbase/cache",
-		},
+		Binds:       e.hostBinds(),
 		NetworkMode: container.NetworkMode(e.network),
 	}
 
@@ -648,10 +656,7 @@ func (e *DockerExecutor) dispatchProject(ctx context.Context, job *api.RenovateJ
 	}
 
 	hostCfg := &container.HostConfig{
-		Binds: []string{
-			e.cacheVolume + ":/tmp/renovate",
-			e.containerbaseCacheVolume + ":/tmp/containerbase/cache",
-		},
+		Binds:       e.hostBinds(),
 		NetworkMode: container.NetworkMode(e.network),
 	}
 
