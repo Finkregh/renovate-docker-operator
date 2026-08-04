@@ -91,15 +91,16 @@ func run() error {
 
 	// 4. Create Docker executor
 	execCfg := executor.Config{
-		Image:             cfg.RenovateImage,
-		Network:           cfg.ContainerNetwork,
-		CacheVolume:       cfg.CacheVolume,
-		Parallelism:       cfg.Parallelism,
-		JobTimeout:        cfg.JobTimeout,
-		GracePeriod:       cfg.GracePeriod,
-		ImagePullPolicy:   cfg.ImagePullPolicy,
-		ImageCacheTTL:     cfg.ImageCacheTTL,
-		FailureMinRuntime: cfg.FailureMinRuntime,
+		Image:                    cfg.RenovateImage,
+		Network:                  cfg.ContainerNetwork,
+		CacheVolume:              cfg.CacheVolume,
+		ContainerbaseCacheVolume: cfg.ContainerbaseCacheVolume,
+		Parallelism:              cfg.Parallelism,
+		JobTimeout:               cfg.JobTimeout,
+		GracePeriod:              cfg.GracePeriod,
+		ImagePullPolicy:          cfg.ImagePullPolicy,
+		ImageCacheTTL:            cfg.ImageCacheTTL,
+		FailureMinRuntime:        cfg.FailureMinRuntime,
 	}
 
 	exec, err := executor.New(execCfg, store, logger)

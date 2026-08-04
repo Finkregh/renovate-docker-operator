@@ -60,14 +60,15 @@ type MetricsRecorder interface {
 
 // Config holds configuration for the DockerExecutor.
 type Config struct {
-	Image           string
-	Network         string
-	CacheVolume     string
-	Parallelism     int
-	JobTimeout      time.Duration
-	GracePeriod     time.Duration
-	ImagePullPolicy string // "always", "if-not-present", "never"
-	ImageCacheTTL   time.Duration
+	Image                    string
+	Network                  string
+	CacheVolume              string
+	ContainerbaseCacheVolume string
+	Parallelism              int
+	JobTimeout               time.Duration
+	GracePeriod              time.Duration
+	ImagePullPolicy          string // "always", "if-not-present", "never"
+	ImageCacheTTL            time.Duration
 	// FailureMinRuntime is the threshold separating rapid failures (<) from
 	// slow failures (>=). Default: 30s.
 	FailureMinRuntime time.Duration
@@ -84,15 +85,16 @@ type DockerExecutor struct {
 	logger *slog.Logger
 
 	// Configuration
-	image             string
-	network           string
-	cacheVolume       string
-	parallelism       int
-	jobTimeout        time.Duration
-	gracePeriod       time.Duration
-	imagePullPolicy   string
-	imageCacheTTL     time.Duration
-	failureMinRuntime time.Duration
+	image                    string
+	network                  string
+	cacheVolume              string
+	containerbaseCacheVolume string
+	parallelism              int
+	jobTimeout               time.Duration
+	gracePeriod              time.Duration
+	imagePullPolicy          string
+	imageCacheTTL            time.Duration
+	failureMinRuntime        time.Duration
 
 	// Optional hooks (nil-safe)
 	reporter ResilienceReporter
@@ -131,6 +133,9 @@ func New(cfg Config, store statestore.RenovateJobManager, logger *slog.Logger) (
 	if cfg.CacheVolume == "" {
 		cfg.CacheVolume = "renovate-cache"
 	}
+	if cfg.ContainerbaseCacheVolume == "" {
+		cfg.ContainerbaseCacheVolume = "renovate-containerbase-cache"
+	}
 	if cfg.Parallelism <= 0 {
 		cfg.Parallelism = 2
 	}
@@ -148,23 +153,24 @@ func New(cfg Config, store statestore.RenovateJobManager, logger *slog.Logger) (
 	}
 
 	return &DockerExecutor{
-		docker:            cli,
-		store:             store,
-		logger:            logger,
-		image:             cfg.Image,
-		network:           cfg.Network,
-		cacheVolume:       cfg.CacheVolume,
-		parallelism:       cfg.Parallelism,
-		jobTimeout:        cfg.JobTimeout,
-		gracePeriod:       cfg.GracePeriod,
-		imagePullPolicy:   cfg.ImagePullPolicy,
-		imageCacheTTL:     cfg.ImageCacheTTL,
-		failureMinRuntime: cfg.FailureMinRuntime,
-		running:           make(map[string]string),
-		sources:           make(map[string]resilience.Source),
-		imageCache:        make(map[string]time.Time),
-		stopCh:            make(chan struct{}),
-		discoveryID:       make(map[string]string),
+		docker:                   cli,
+		store:                    store,
+		logger:                   logger,
+		image:                    cfg.Image,
+		network:                  cfg.Network,
+		cacheVolume:              cfg.CacheVolume,
+		containerbaseCacheVolume: cfg.ContainerbaseCacheVolume,
+		parallelism:              cfg.Parallelism,
+		jobTimeout:               cfg.JobTimeout,
+		gracePeriod:              cfg.GracePeriod,
+		imagePullPolicy:          cfg.ImagePullPolicy,
+		imageCacheTTL:            cfg.ImageCacheTTL,
+		failureMinRuntime:        cfg.FailureMinRuntime,
+		running:                  make(map[string]string),
+		sources:                  make(map[string]resilience.Source),
+		imageCache:               make(map[string]time.Time),
+		stopCh:                   make(chan struct{}),
+		discoveryID:              make(map[string]string),
 	}, nil
 }
 
@@ -297,7 +303,10 @@ func (e *DockerExecutor) DispatchDiscovery(ctx context.Context, job *api.Renovat
 	}
 
 	hostCfg := &container.HostConfig{
-		Binds:       []string{e.cacheVolume + ":/tmp/renovate"},
+		Binds: []string{
+			e.cacheVolume + ":/tmp/renovate",
+			e.containerbaseCacheVolume + ":/tmp/containerbase/cache",
+		},
 		NetworkMode: container.NetworkMode(e.network),
 	}
 
@@ -452,7 +461,10 @@ func (e *DockerExecutor) runDiscoveryContainer(ctx context.Context, job *api.Ren
 	}
 
 	hostCfg := &container.HostConfig{
-		Binds:       []string{e.cacheVolume + ":/tmp/renovate"},
+		Binds: []string{
+			e.cacheVolume + ":/tmp/renovate",
+			e.containerbaseCacheVolume + ":/tmp/containerbase/cache",
+		},
 		NetworkMode: container.NetworkMode(e.network),
 	}
 
@@ -636,7 +648,10 @@ func (e *DockerExecutor) dispatchProject(ctx context.Context, job *api.RenovateJ
 	}
 
 	hostCfg := &container.HostConfig{
-		Binds:       []string{e.cacheVolume + ":/tmp/renovate"},
+		Binds: []string{
+			e.cacheVolume + ":/tmp/renovate",
+			e.containerbaseCacheVolume + ":/tmp/containerbase/cache",
+		},
 		NetworkMode: container.NetworkMode(e.network),
 	}
 
