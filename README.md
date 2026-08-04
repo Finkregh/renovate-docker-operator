@@ -92,6 +92,7 @@ All configuration is via environment variables:
 | `ROP_SERVER_PORT`           | `8081`                     | HTTP server port (UI + webhook + API)                                                   |
 | `ROP_SQLITE_PATH`           | `/data/renovate.db`        | Path to SQLite database                                                                 |
 | `ROP_CACHE_VOLUME`          | `renovate-cache`           | Docker volume for Renovate cache                                                        |
+| `ROP_CONTAINERBASE_CACHE_VOLUME` | `renovate-containerbase-cache` | Docker volume for Containerbase tool caches (uv, nix, pip, cargo, gradle, m2, gem, …). Safe to delete; refilled on next run. |
 | `ROP_CONTAINER_NETWORK`     | _(empty)_                  | Docker network for Renovate containers                                                  |
 | `ROP_IMAGE_PULL_POLICY`     | `if-not-present`           | When to pull image (`always`, `if-not-present`, `never`)                                |
 | `ROP_IMAGE_CACHE_TTL`       | `24h`                      | Duration to cache the pulled image (0 disables)                                         |
