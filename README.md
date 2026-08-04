@@ -103,6 +103,41 @@ All configuration is via environment variables:
 
 Any environment variable prefixed `RENOVATE_*` on the operator process is passed through 1:1 to spawned Renovate containers.
 
+### Cache volumes
+
+The operator mounts two Docker volumes into every spawned Renovate container:
+
+| Volume (env var) | Container path | What it holds |
+| ---------------- | -------------- | ------------- |
+| `renovate-cache` (`ROP_CACHE_VOLUME`) | `/tmp/renovate` | Renovate's own base/cache dir — repo checkouts, `repos.json`, and the manager caches Renovate itself wires here via `ensureCacheDir` (`others/{go,npm,pnpm,yarn,berry}`). |
+| `renovate-containerbase-cache` (`ROP_CONTAINERBASE_CACHE_VOLUME`) | `/tmp/containerbase/cache` | Containerbase-managed tool caches: `uv`, `pip`, `poetry`, `nix` (via the baked `NIX_STORE_DIR`, so the public binary substituter stays valid), `cargo`, `gradle`, `m2`, `gem`, `nuget`, `sbt`, `cocoapods`, `conan`, `dart`, `flutter`, `hex`, `mix`, and `$HOME/.cache/*` in general (the image symlinks `/home/ubuntu/.cache` into this tree). |
+
+Podman/Docker auto-seeds an empty named volume from the image's baked
+skeleton on first mount, preserving the `root:root drwxrwxr-x`
+permissions Containerbase requires. Both volumes are safe to delete to
+reclaim disk — Renovate refills them on the next run.
+
+**GID 0 requirement.** Child Renovate containers run as `12021:0` (UID
+12021, GID 0). Containerbase's install/prep steps write into
+`/tmp/containerbase/cache` as `root:root` with group-writable perms, so
+the non-root user needs the root group to write there. Do not override
+this with a custom `--user` flag; it will silently break tool caching
+and you'll see `Permission denied` errors for `uv`, `nix`, and friends.
+
+**Reclaiming disk.** To wipe caches:
+
+```sh
+docker volume rm renovate-cache renovate-containerbase-cache
+```
+
+Or, targeted — e.g. only the large containerbase volume:
+
+```sh
+docker volume rm renovate-containerbase-cache
+```
+
+Both are recreated automatically on the next Renovate run.
+
 ### Webhook Configuration
 
 | Variable              | Default            | Description                                                                                                                                        |
