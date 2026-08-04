@@ -39,6 +39,13 @@ const (
 	typeDiscovery = "discovery"
 )
 
+// renovateContainerUser is the uid:gid the renovate/renovate image requires.
+// Containerbase caches under /tmp/containerbase are only group-writable to
+// GID 0, so children must run with primary GID 0. Verified on
+// renovate/renovate:full 2026-08-04. See
+// .unipi/docs/generated/2026-08-04-permission-issues-uv-nix.md.
+const renovateContainerUser = "12021:0"
+
 // ResilienceReporter is the interface for reporting container outcomes to the
 // resilience package. Satisfied by *resilience.Manager.
 type ResilienceReporter interface {
@@ -286,7 +293,7 @@ func (e *DockerExecutor) DispatchDiscovery(ctx context.Context, job *api.Renovat
 		Cmd:    []string{"/bin/sh", "-c", discoveryCmd},
 		Env:    envVars,
 		Labels: labels,
-		User:   "12021:12021",
+		User:   renovateContainerUser,
 	}
 
 	hostCfg := &container.HostConfig{
@@ -441,7 +448,7 @@ func (e *DockerExecutor) runDiscoveryContainer(ctx context.Context, job *api.Ren
 		Cmd:    []string{"/bin/sh", "-c", discoveryCmd},
 		Env:    envVars,
 		Labels: labels,
-		User:   "12021:12021",
+		User:   renovateContainerUser,
 	}
 
 	hostCfg := &container.HostConfig{
@@ -625,7 +632,7 @@ func (e *DockerExecutor) dispatchProject(ctx context.Context, job *api.RenovateJ
 		Cmd:    []string{"renovate", project},
 		Env:    envVars,
 		Labels: labels,
-		User:   "12021:12021",
+		User:   renovateContainerUser,
 	}
 
 	hostCfg := &container.HostConfig{
