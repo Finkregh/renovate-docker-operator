@@ -417,6 +417,9 @@ func TestNew_Defaults(t *testing.T) {
 	if exec.cacheVolume != "renovate-cache" {
 		t.Errorf("cacheVolume = %q, want %q", exec.cacheVolume, "renovate-cache")
 	}
+	if exec.containerbaseCacheVolume != "renovate-containerbase-cache" {
+		t.Errorf("containerbaseCacheVolume = %q, want %q", exec.containerbaseCacheVolume, "renovate-containerbase-cache")
+	}
 	if exec.parallelism != 2 {
 		t.Errorf("parallelism = %d, want %d", exec.parallelism, 2)
 	}
@@ -436,14 +439,15 @@ func TestNew_Defaults(t *testing.T) {
 
 func TestNew_CustomConfig(t *testing.T) {
 	cfg := Config{
-		Image:           "custom/image:v1",
-		Network:         "host",
-		CacheVolume:     "my-vol",
-		Parallelism:     8,
-		JobTimeout:      10 * time.Minute,
-		GracePeriod:     30 * time.Second,
-		ImagePullPolicy: "always",
-		ImageCacheTTL:   5 * time.Minute,
+		Image:                   "custom/image:v1",
+		Network:                 "host",
+		CacheVolume:             "my-vol",
+		ContainerbaseCacheVolume: "my-cb-vol",
+		Parallelism:             8,
+		JobTimeout:              10 * time.Minute,
+		GracePeriod:             30 * time.Second,
+		ImagePullPolicy:         "always",
+		ImageCacheTTL:           5 * time.Minute,
 	}
 
 	exec, err := New(cfg, nil, slog.Default())
@@ -459,6 +463,9 @@ func TestNew_CustomConfig(t *testing.T) {
 	}
 	if exec.cacheVolume != "my-vol" {
 		t.Errorf("cacheVolume = %q, want %q", exec.cacheVolume, "my-vol")
+	}
+	if exec.containerbaseCacheVolume != "my-cb-vol" {
+		t.Errorf("containerbaseCacheVolume = %q, want %q", exec.containerbaseCacheVolume, "my-cb-vol")
 	}
 	if exec.parallelism != 8 {
 		t.Errorf("parallelism = %d, want %d", exec.parallelism, 8)
