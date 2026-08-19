@@ -25,6 +25,7 @@ import (
 
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/api"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/parser"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/resilience"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/statestore"
 )
 
@@ -38,16 +39,39 @@ const (
 	typeDiscovery = "discovery"
 )
 
+// renovateContainerUser is the uid:gid the renovate/renovate image requires.
+// Containerbase caches under /tmp/containerbase are only group-writable to
+// GID 0, so children must run with primary GID 0. Verified on
+// renovate/renovate:full 2026-08-04. See
+// .unipi/docs/generated/2026-08-04-permission-issues-uv-nix.md.
+const renovateContainerUser = "12021:0"
+
+// ResilienceReporter is the interface for reporting container outcomes to the
+// resilience package. Satisfied by *resilience.Manager.
+type ResilienceReporter interface {
+	Report(project string, source resilience.Source, outcome resilience.Outcome, duration time.Duration, exitCode int)
+}
+
+// MetricsRecorder is the interface for recording container duration metrics.
+// Satisfied by *metrics.Recorder.
+type MetricsRecorder interface {
+	ObserveContainerDuration(project, outcome string, d time.Duration)
+}
+
 // Config holds configuration for the DockerExecutor.
 type Config struct {
-	Image           string
-	Network         string
-	CacheVolume     string
-	Parallelism     int
-	JobTimeout      time.Duration
-	GracePeriod     time.Duration
-	ImagePullPolicy string // "always", "if-not-present", "never"
-	ImageCacheTTL   time.Duration
+	Image                    string
+	Network                  string
+	CacheVolume              string
+	ContainerbaseCacheVolume string
+	Parallelism              int
+	JobTimeout               time.Duration
+	GracePeriod              time.Duration
+	ImagePullPolicy          string // "always", "if-not-present", "never"
+	ImageCacheTTL            time.Duration
+	// FailureMinRuntime is the threshold separating rapid failures (<) from
+	// slow failures (>=). Default: 30s.
+	FailureMinRuntime time.Duration
 }
 
 // ErrDiscoveryAlreadyRunning is returned when a discovery container is already
@@ -61,19 +85,26 @@ type DockerExecutor struct {
 	logger *slog.Logger
 
 	// Configuration
-	image           string
-	network         string
-	cacheVolume     string
-	parallelism     int
-	jobTimeout      time.Duration
-	gracePeriod     time.Duration
-	imagePullPolicy string
-	imageCacheTTL   time.Duration
+	image                    string
+	network                  string
+	cacheVolume              string
+	containerbaseCacheVolume string
+	parallelism              int
+	jobTimeout               time.Duration
+	gracePeriod              time.Duration
+	imagePullPolicy          string
+	imageCacheTTL            time.Duration
+	failureMinRuntime        time.Duration
+
+	// Optional hooks (nil-safe)
+	reporter ResilienceReporter
+	recorder MetricsRecorder
 
 	// Runtime state
 	mu         sync.Mutex
-	running    map[string]string    // project → containerID
-	imageCache map[string]time.Time // image tag → last-checked time
+	running    map[string]string            // project → containerID
+	sources    map[string]resilience.Source // project → dispatch source
+	imageCache map[string]time.Time         // image tag → last-checked time
 	stopCh     chan struct{}
 
 	// Discovery tracking
@@ -102,6 +133,9 @@ func New(cfg Config, store statestore.RenovateJobManager, logger *slog.Logger) (
 	if cfg.CacheVolume == "" {
 		cfg.CacheVolume = "renovate-cache"
 	}
+	if cfg.ContainerbaseCacheVolume == "" {
+		cfg.ContainerbaseCacheVolume = "renovate-containerbase-cache"
+	}
 	if cfg.Parallelism <= 0 {
 		cfg.Parallelism = 2
 	}
@@ -114,24 +148,59 @@ func New(cfg Config, store statestore.RenovateJobManager, logger *slog.Logger) (
 	if cfg.ImagePullPolicy == "" {
 		cfg.ImagePullPolicy = "if-not-present"
 	}
+	if cfg.FailureMinRuntime <= 0 {
+		cfg.FailureMinRuntime = 30 * time.Second
+	}
 
 	return &DockerExecutor{
-		docker:          cli,
-		store:           store,
-		logger:          logger,
-		image:           cfg.Image,
-		network:         cfg.Network,
-		cacheVolume:     cfg.CacheVolume,
-		parallelism:     cfg.Parallelism,
-		jobTimeout:      cfg.JobTimeout,
-		gracePeriod:     cfg.GracePeriod,
-		imagePullPolicy: cfg.ImagePullPolicy,
-		imageCacheTTL:   cfg.ImageCacheTTL,
-		running:         make(map[string]string),
-		imageCache:      make(map[string]time.Time),
-		stopCh:          make(chan struct{}),
-		discoveryID:     make(map[string]string),
+		docker:                   cli,
+		store:                    store,
+		logger:                   logger,
+		image:                    cfg.Image,
+		network:                  cfg.Network,
+		cacheVolume:              cfg.CacheVolume,
+		containerbaseCacheVolume: cfg.ContainerbaseCacheVolume,
+		parallelism:              cfg.Parallelism,
+		jobTimeout:               cfg.JobTimeout,
+		gracePeriod:              cfg.GracePeriod,
+		imagePullPolicy:          cfg.ImagePullPolicy,
+		imageCacheTTL:            cfg.ImageCacheTTL,
+		failureMinRuntime:        cfg.FailureMinRuntime,
+		running:                  make(map[string]string),
+		sources:                  make(map[string]resilience.Source),
+		imageCache:               make(map[string]time.Time),
+		stopCh:                   make(chan struct{}),
+		discoveryID:              make(map[string]string),
 	}, nil
+}
+
+// SetReporter injects the resilience reporter. Nil is safe (no-op).
+func (e *DockerExecutor) SetReporter(r ResilienceReporter) { e.reporter = r }
+
+// SetRecorder injects the metrics recorder. Nil is safe (no-op).
+func (e *DockerExecutor) SetRecorder(r MetricsRecorder) { e.recorder = r }
+
+// hostBinds returns the bind mounts every renovate child container needs:
+//   - <cacheVolume>:/tmp/renovate           (Renovate's own base/cache dir)
+//   - <containerbaseCacheVolume>:/tmp/containerbase/cache
+//     (Containerbase-managed tool caches)
+//
+// Both volumes are required together — dropping either breaks caching for one
+// class of tools. See .unipi/docs/generated/2026-08-04-permission-issues-uv-nix.md.
+func (e *DockerExecutor) hostBinds() []string {
+	return []string{
+		e.cacheVolume + ":/tmp/renovate",
+		e.containerbaseCacheVolume + ":/tmp/containerbase/cache",
+	}
+}
+
+// SetProjectSource records the dispatch source for a project so that the exit
+// handler can pass it to the resilience reporter. Call this before the
+// dispatch loop picks up the project. Safe to call concurrently.
+func (e *DockerExecutor) SetProjectSource(project string, source resilience.Source) {
+	e.mu.Lock()
+	e.sources[project] = source
+	e.mu.Unlock()
 }
 
 // Ping verifies connectivity to the Docker daemon.
@@ -231,10 +300,12 @@ func (e *DockerExecutor) DispatchDiscovery(ctx context.Context, job *api.Renovat
 
 	discoveryCmd := `BASE_DIR="${RENOVATE_BASE_DIR:-/tmp}"; renovate --autodiscover --write-discovered-repos "$BASE_DIR/repos.json" >> "$BASE_DIR/logs.json" 2>&1 && cat "$BASE_DIR/repos.json" || cat "$BASE_DIR/logs.json"`
 
+	startTime := time.Now()
+
 	labels := map[string]string{
 		labelJobName:   job.Name,
 		labelType:      typeDiscovery,
-		labelStartedAt: time.Now().UTC().Format(time.RFC3339),
+		labelStartedAt: startTime.UTC().Format(time.RFC3339),
 	}
 
 	containerCfg := &container.Config{
@@ -242,15 +313,15 @@ func (e *DockerExecutor) DispatchDiscovery(ctx context.Context, job *api.Renovat
 		Cmd:    []string{"/bin/sh", "-c", discoveryCmd},
 		Env:    envVars,
 		Labels: labels,
-		User:   "12021:12021",
+		User:   renovateContainerUser,
 	}
 
 	hostCfg := &container.HostConfig{
-		Binds:       []string{e.cacheVolume + ":/tmp/renovate"},
+		Binds:       e.hostBinds(),
 		NetworkMode: container.NetworkMode(e.network),
 	}
 
-	name := fmt.Sprintf("renovate-discovery-%s-%d", sanitizeName(job.Name), time.Now().Unix())
+	name := fmt.Sprintf("renovate-discovery-%s-%d", sanitizeName(job.Name), startTime.Unix())
 
 	resp, err := e.docker.ContainerCreate(ctx, containerCfg, hostCfg, &network.NetworkingConfig{}, nil, name)
 	if err != nil {
@@ -272,11 +343,27 @@ func (e *DockerExecutor) DispatchDiscovery(ctx context.Context, job *api.Renovat
 			return nil, fmt.Errorf("wait for discovery container: %w", err)
 		}
 	case status := <-statusCh:
+		runtime := time.Since(startTime)
 		if status.StatusCode != 0 {
+			// Report discovery failure to resilience + metrics.
+			outcome := e.classifyOutcome(int(status.StatusCode), runtime)
+			if e.reporter != nil {
+				e.reporter.Report(resilience.DiscoveryProject, resilience.SourceCron, outcome, runtime, int(status.StatusCode))
+			}
+			if e.recorder != nil {
+				e.recorder.ObserveContainerDuration(resilience.DiscoveryProject, string(outcome), runtime)
+			}
 			// Read logs for error info
 			logs, _ := e.getContainerLogs(ctx, containerID)
 			_ = e.docker.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true})
 			return nil, fmt.Errorf("discovery container exited with code %d: %s", status.StatusCode, string(logs))
+		}
+		// Report discovery success.
+		if e.reporter != nil {
+			e.reporter.Report(resilience.DiscoveryProject, resilience.SourceCron, resilience.OutcomeSuccess, runtime, 0)
+		}
+		if e.recorder != nil {
+			e.recorder.ObserveContainerDuration(resilience.DiscoveryProject, string(resilience.OutcomeSuccess), runtime)
 		}
 	case <-ctx.Done():
 		_ = e.docker.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true})
@@ -368,10 +455,12 @@ func (e *DockerExecutor) runDiscoveryContainer(ctx context.Context, job *api.Ren
 
 	discoveryCmd := `BASE_DIR="${RENOVATE_BASE_DIR:-/tmp}"; renovate --autodiscover --write-discovered-repos "$BASE_DIR/repos.json" >> "$BASE_DIR/logs.json" 2>&1 && cat "$BASE_DIR/repos.json" || cat "$BASE_DIR/logs.json"`
 
+	startTime := time.Now()
+
 	labels := map[string]string{
 		labelJobName:   job.Name,
 		labelType:      typeDiscovery,
-		labelStartedAt: time.Now().UTC().Format(time.RFC3339),
+		labelStartedAt: startTime.UTC().Format(time.RFC3339),
 	}
 
 	containerCfg := &container.Config{
@@ -379,15 +468,15 @@ func (e *DockerExecutor) runDiscoveryContainer(ctx context.Context, job *api.Ren
 		Cmd:    []string{"/bin/sh", "-c", discoveryCmd},
 		Env:    envVars,
 		Labels: labels,
-		User:   "12021:12021",
+		User:   renovateContainerUser,
 	}
 
 	hostCfg := &container.HostConfig{
-		Binds:       []string{e.cacheVolume + ":/tmp/renovate"},
+		Binds:       e.hostBinds(),
 		NetworkMode: container.NetworkMode(e.network),
 	}
 
-	name := fmt.Sprintf("renovate-discovery-%s-%d", sanitizeName(job.Name), time.Now().Unix())
+	name := fmt.Sprintf("renovate-discovery-%s-%d", sanitizeName(job.Name), startTime.Unix())
 
 	resp, err := e.docker.ContainerCreate(ctx, containerCfg, hostCfg, &network.NetworkingConfig{}, nil, name)
 	if err != nil {
@@ -414,10 +503,26 @@ func (e *DockerExecutor) runDiscoveryContainer(ctx context.Context, job *api.Ren
 			return nil, fmt.Errorf("wait for discovery container: %w", err)
 		}
 	case status := <-statusCh:
+		runtime := time.Since(startTime)
 		if status.StatusCode != 0 {
+			// Report discovery failure to resilience + metrics.
+			outcome := e.classifyOutcome(int(status.StatusCode), runtime)
+			if e.reporter != nil {
+				e.reporter.Report(resilience.DiscoveryProject, resilience.SourceCron, outcome, runtime, int(status.StatusCode))
+			}
+			if e.recorder != nil {
+				e.recorder.ObserveContainerDuration(resilience.DiscoveryProject, string(outcome), runtime)
+			}
 			logs, _ := e.getContainerLogs(ctx, containerID)
 			_ = e.docker.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true})
 			return nil, fmt.Errorf("discovery container exited with code %d: %s", status.StatusCode, string(logs))
+		}
+		// Report discovery success.
+		if e.reporter != nil {
+			e.reporter.Report(resilience.DiscoveryProject, resilience.SourceCron, resilience.OutcomeSuccess, runtime, 0)
+		}
+		if e.recorder != nil {
+			e.recorder.ObserveContainerDuration(resilience.DiscoveryProject, string(resilience.OutcomeSuccess), runtime)
 		}
 	case <-ctx.Done():
 		_ = e.docker.ContainerRemove(ctx, containerID, container.RemoveOptions{Force: true})
@@ -506,6 +611,7 @@ func (e *DockerExecutor) doDispatch(ctx context.Context) {
 			}
 			// Reserve slot with empty container ID (will be filled by dispatchProject)
 			e.running[proj.Name] = ""
+			e.sources[proj.Name] = resilience.SourceCron
 			e.mu.Unlock()
 
 			if err := e.dispatchProject(ctx, job, proj.Name); err != nil {
@@ -514,6 +620,7 @@ func (e *DockerExecutor) doDispatch(ctx context.Context) {
 				// Release the reserved slot on failure
 				e.mu.Lock()
 				delete(e.running, proj.Name)
+				delete(e.sources, proj.Name)
 				e.mu.Unlock()
 				continue
 			}
@@ -545,11 +652,11 @@ func (e *DockerExecutor) dispatchProject(ctx context.Context, job *api.RenovateJ
 		Cmd:    []string{"renovate", project},
 		Env:    envVars,
 		Labels: labels,
-		User:   "12021:12021",
+		User:   renovateContainerUser,
 	}
 
 	hostCfg := &container.HostConfig{
-		Binds:       []string{e.cacheVolume + ":/tmp/renovate"},
+		Binds:       e.hostBinds(),
 		NetworkMode: container.NetworkMode(e.network),
 	}
 
@@ -570,6 +677,10 @@ func (e *DockerExecutor) dispatchProject(ctx context.Context, job *api.RenovateJ
 	// to minimize the orphan window.
 	e.mu.Lock()
 	e.running[project] = containerID
+	// Record source if not already set (doDispatch sets SourceCron before calling).
+	if _, hasSource := e.sources[project]; !hasSource {
+		e.sources[project] = resilience.SourceCron
+	}
 	e.mu.Unlock()
 
 	jobID := statestore.RenovateJobIdentifier{Name: job.Name}
@@ -627,6 +738,19 @@ func (e *DockerExecutor) listenEvents(ctx context.Context, triggerDispatch func(
 	}
 }
 
+// classifyOutcome maps an exit code + runtime to a resilience.Outcome.
+// exit 0 → Success; non-zero with runtime < failureMinRuntime → RapidFail;
+// non-zero with runtime >= failureMinRuntime → SlowFail.
+func (e *DockerExecutor) classifyOutcome(exitCode int, runtime time.Duration) resilience.Outcome {
+	if exitCode == 0 {
+		return resilience.OutcomeSuccess
+	}
+	if runtime < e.failureMinRuntime {
+		return resilience.OutcomeRapidFail
+	}
+	return resilience.OutcomeSlowFail
+}
+
 // handleContainerExit processes a container that has exited.
 func (e *DockerExecutor) handleContainerExit(ctx context.Context, containerID string) {
 	// Find the project associated with this container
@@ -674,9 +798,11 @@ func (e *DockerExecutor) handleContainerExit(ctx context.Context, containerID st
 
 	// Calculate duration
 	var duration *string
+	var runtimeDuration time.Duration
 	if startedAtStr != "" {
 		if startedAt, err := time.Parse(time.RFC3339, startedAtStr); err == nil {
-			d := time.Since(startedAt).Round(time.Second).String()
+			runtimeDuration = time.Since(startedAt)
+			d := runtimeDuration.Round(time.Second).String()
 			duration = &d
 		}
 	}
@@ -700,6 +826,26 @@ func (e *DockerExecutor) handleContainerExit(ctx context.Context, containerID st
 	status := api.JobStatusCompleted
 	if exitCode != 0 {
 		status = api.JobStatusFailed
+	}
+
+	// Classify outcome for resilience + metrics.
+	outcome := e.classifyOutcome(exitCode, runtimeDuration)
+
+	// Retrieve and consume the source for this project.
+	e.mu.Lock()
+	source := e.sources[project]
+	e.mu.Unlock()
+	if source == "" {
+		source = resilience.SourceCron // fallback
+	}
+
+	// Report to resilience package (nil-safe).
+	if e.reporter != nil {
+		e.reporter.Report(project, source, outcome, runtimeDuration, exitCode)
+	}
+	// Record to metrics (nil-safe).
+	if e.recorder != nil {
+		e.recorder.ObserveContainerDuration(project, string(outcome), runtimeDuration)
 	}
 
 	e.logger.Info("container exited",
@@ -727,9 +873,10 @@ func (e *DockerExecutor) handleContainerExit(ctx context.Context, containerID st
 		}
 	}
 
-	// Remove from running map
+	// Remove from running map and source tracking
 	e.mu.Lock()
 	delete(e.running, project)
+	delete(e.sources, project)
 	e.mu.Unlock()
 
 	// Remove the container

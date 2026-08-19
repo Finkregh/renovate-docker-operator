@@ -40,6 +40,7 @@
     <script type="text/babel" src="components/ThemeToggle.js"></script>
     <script type="text/babel" src="components/SiteHeader.js"></script>
     <script type="text/babel" src="components/StatBadge.js"></script>
+    <script type="text/babel" src="components/BreakerBanner.js"></script>
     <script type="text/babel" src="components/Footer.js"></script>
 
     <link rel="stylesheet" href="css/styles.css" />
@@ -1097,6 +1098,7 @@
           pending: 0,
         });
         const [version, setVersion] = useState(null);
+        const [breaker, setBreaker] = useState(null);
         const [toasts, setToasts] = useState([]);
         const nextToastIdRef = useRef(0);
         const hasLoadedOnce = useRef(false);
@@ -1520,6 +1522,51 @@
           }
         }, [addToast]);
 
+        const loadBreaker = useCallback(async () => {
+          try {
+            const response = await authFetch("/api/v1/breaker/state");
+            if (response.ok) {
+              const data = await response.json();
+              setBreaker(data);
+            }
+          } catch {
+            // Silent — don't spam toasts on poll failures
+          }
+        }, []);
+
+        const handleBreakerReset = async () => {
+          const count = breaker ? breaker.pendingReplayCount || 0 : 0;
+          if (
+            !window.confirm(
+              `Reset the breaker? This will replay ${count} queued webhook(s).`,
+            )
+          ) {
+            return;
+          }
+          try {
+            const response = await authFetch("/api/v1/breaker/reset", {
+              method: "POST",
+            });
+            if (response.ok) {
+              const data = await response.json();
+              const replayed = (data.replayedProjects || []).length;
+              const cleared = data.clearedBackoffs || 0;
+              addToast(
+                "success",
+                "Breaker Reset",
+                `Breaker reset — replayed ${replayed} project(s), cleared ${cleared} backoff(s)`,
+              );
+            } else {
+              const errorText = await response.text();
+              throw new Error(errorText || "Failed to reset breaker");
+            }
+          } catch (err) {
+            addToast("error", "Reset Failed", err.message);
+          }
+          loadBreaker();
+          loadJobs();
+        };
+
         const runDiscovery = async (job) => {
           if (job.discoveryRunning) return;
 
@@ -1764,9 +1811,26 @@
           return () => clearInterval(interval);
         }, [loadJobs]);
 
+        useEffect(() => {
+          loadBreaker();
+          const interval = setInterval(loadBreaker, 10000);
+          return () => clearInterval(interval);
+        }, [loadBreaker]);
+
         return (
           <div className="min-h-screen flex flex-col">
             <ToastContainer toasts={toasts} onRemove={removeToast} />
+
+            {breaker && (
+              <BreakerBanner
+                state={breaker.state}
+                openSince={breaker.openSince}
+                openReason={breaker.openReason}
+                pendingReplayCount={breaker.pendingReplayCount}
+                rapidFailures5m={breaker.rapidFailures5m}
+                onReset={handleBreakerReset}
+              />
+            )}
 
             <SiteHeader version={version} authInfo={authInfo}>
               <StatBadge

@@ -92,6 +92,7 @@ All configuration is via environment variables:
 | `ROP_SERVER_PORT`           | `8081`                     | HTTP server port (UI + webhook + API)                                                   |
 | `ROP_SQLITE_PATH`           | `/data/renovate.db`        | Path to SQLite database                                                                 |
 | `ROP_CACHE_VOLUME`          | `renovate-cache`           | Docker volume for Renovate cache                                                        |
+| `ROP_CONTAINERBASE_CACHE_VOLUME` | `renovate-containerbase-cache` | Docker volume for Containerbase tool caches (uv, nix, pip, cargo, gradle, m2, gem, …). Safe to delete; refilled on next run. |
 | `ROP_CONTAINER_NETWORK`     | _(empty)_                  | Docker network for Renovate containers                                                  |
 | `ROP_IMAGE_PULL_POLICY`     | `if-not-present`           | When to pull image (`always`, `if-not-present`, `never`)                                |
 | `ROP_IMAGE_CACHE_TTL`       | `24h`                      | Duration to cache the pulled image (0 disables)                                         |
@@ -101,6 +102,41 @@ All configuration is via environment variables:
 | `ROP_LOG_LEVEL`             | `info`                     | Log level (`debug`, `info`, `warn`, `error`)                                            |
 
 Any environment variable prefixed `RENOVATE_*` on the operator process is passed through 1:1 to spawned Renovate containers.
+
+### Cache volumes
+
+The operator mounts two Docker volumes into every spawned Renovate container:
+
+| Volume (env var) | Container path | What it holds |
+| ---------------- | -------------- | ------------- |
+| `renovate-cache` (`ROP_CACHE_VOLUME`) | `/tmp/renovate` | Renovate's own base/cache dir — repo checkouts, `repos.json`, and the manager caches Renovate itself wires here via `ensureCacheDir` (`others/{go,npm,pnpm,yarn,berry}`). |
+| `renovate-containerbase-cache` (`ROP_CONTAINERBASE_CACHE_VOLUME`) | `/tmp/containerbase/cache` | Containerbase-managed tool caches: `uv`, `pip`, `poetry`, `nix` (via the baked `NIX_STORE_DIR`, so the public binary substituter stays valid), `cargo`, `gradle`, `m2`, `gem`, `nuget`, `sbt`, `cocoapods`, `conan`, `dart`, `flutter`, `hex`, `mix`, and `$HOME/.cache/*` in general (the image symlinks `/home/ubuntu/.cache` into this tree). |
+
+Podman/Docker auto-seeds an empty named volume from the image's baked
+skeleton on first mount, preserving the `root:root drwxrwxr-x`
+permissions Containerbase requires. Both volumes are safe to delete to
+reclaim disk — Renovate refills them on the next run.
+
+**GID 0 requirement.** Child Renovate containers run as `12021:0` (UID
+12021, GID 0). Containerbase's install/prep steps write into
+`/tmp/containerbase/cache` as `root:root` with group-writable perms, so
+the non-root user needs the root group to write there. Do not override
+this with a custom `--user` flag; it will silently break tool caching
+and you'll see `Permission denied` errors for `uv`, `nix`, and friends.
+
+**Reclaiming disk.** To wipe caches:
+
+```sh
+docker volume rm renovate-cache renovate-containerbase-cache
+```
+
+Or, targeted — e.g. only the large containerbase volume:
+
+```sh
+docker volume rm renovate-containerbase-cache
+```
+
+Both are recreated automatically on the next Renovate run.
 
 ### Webhook Configuration
 
@@ -180,6 +216,35 @@ OIDC authentication is not yet implemented but is planned. The following environ
 | `ROP_DISCOVERY_FILTERS` | _(empty)_ | Comma-separated repo patterns (e.g., `org/*,user/repo-*`) |
 | `ROP_DISCOVER_TOPICS`   | _(empty)_ | Comma-separated topics to filter by                       |
 | `ROP_SKIP_FORKS`        | `false`   | Skip forked repositories                                  |
+
+## Resilience & Metrics
+
+The operator includes a **rapid-fail circuit breaker** that protects against cascading failures when the underlying environment is unhealthy (e.g., invalid token, unreachable registry). Per-project **exponential backoff** prevents a single broken repository from monopolising dispatch slots. Operators can issue a **manual bypass** for individual projects, and the system exposes **Prometheus metrics** on `/metrics` for alerting and dashboards.
+
+### Configuration
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `ROP_RAPID_FAIL_THRESHOLD` | `10` | Number of rapid failures within the window to trip the breaker |
+| `ROP_RAPID_FAIL_WINDOW` | `5m` | Sliding window for counting rapid failures |
+| `ROP_FAILURE_MIN_RUNTIME` | `30s` | Containers exiting before this duration are classified as rapid failures |
+| `ROP_BACKOFF_BASE` | `30s` | Base delay for per-project exponential backoff |
+| `ROP_BACKOFF_MAX` | `30m` | Maximum per-project backoff cap |
+| `ROP_REPLAY_QUEUE_CAP` | `10000` | Maximum queued webhook events when the breaker is open |
+| `ROP_METRICS_PROJECT_LABEL` | `all` | Project label cardinality on metrics (`all`, `breaker`, `off`) |
+
+### API Surface
+
+- `GET /api/v1/breaker/state` — current breaker snapshot (state, per-project backoffs, replay queue depth)
+- `POST /api/v1/breaker/reset` — full reset: closes breaker, clears all backoffs, drains replay queue
+- `POST /api/v1/breaker/bypass/{org/repo}` — single-shot manual override for one project
+- `GET /metrics` — Prometheus text exposition format
+
+### Webhook Behaviour When Breaker Is Open
+
+When the breaker is open, webhooks return **202 Accepted** and their events are queued; the queue drains automatically on reset (up to `ROP_REPLAY_QUEUE_CAP`, defaults 10 000, beyond which a 503 is returned).
+
+> **Ops runbook:** See [`unipi/docs/runbooks/breaker.md`](unipi/docs/runbooks/breaker.md) for diagnosis and recovery procedures.
 
 ## API Endpoints
 

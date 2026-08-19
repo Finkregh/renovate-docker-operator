@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/api"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/resilience"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/statestore"
 )
 
@@ -71,6 +72,7 @@ type Handler struct {
 	store          statestore.RenovateJobManager
 	logger         *slog.Logger
 	maxRequestBody int64
+	resilience     *resilience.Manager
 }
 
 // NewHandler creates a new webhook handler.
@@ -81,6 +83,10 @@ func NewHandler(store statestore.RenovateJobManager, logger *slog.Logger, maxReq
 		maxRequestBody: maxRequestBody,
 	}
 }
+
+// SetResilience injects the resilience manager for dispatch gating.
+// Nil-safe: if not set, webhook behaves as before (no gating).
+func (h *Handler) SetResilience(mgr *resilience.Manager) { h.resilience = mgr }
 
 // HandleForgejo processes a Forgejo webhook POST request.
 // HandleForgejo processes incoming Forgejo webhook events.
@@ -145,6 +151,31 @@ func (h *Handler) HandleForgejo(w http.ResponseWriter, r *http.Request) {
 		"repository", project,
 		"action", payload.Action,
 	)
+
+	// Gate: check resilience breaker/backoff before scheduling.
+	if h.resilience != nil {
+		allowed, _, reason := h.resilience.AllowDispatch(project, resilience.SourceWebhook)
+		if !allowed {
+			// Enqueue for replay on reset.
+			if err := h.resilience.EnqueueWebhookReplay(project); err != nil {
+				// Queue full — surface 503 so the platform knows to retry later.
+				h.logger.Warn("webhook replay queue full",
+					"project", project, "reason", reason)
+				writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+					"error":   "replay queue full",
+					"project": project,
+				})
+				return
+			}
+			h.logger.Info("webhook queued for replay",
+				"project", project, "reason", reason)
+			writeJSON(w, http.StatusAccepted, map[string]string{
+				"queued":  "true",
+				"project": project,
+			})
+			return
+		}
+	}
 
 	err = h.store.UpdateProjectStatus(
 		r.Context(),

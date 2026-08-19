@@ -30,10 +30,11 @@ type Config struct {
 	SQLitePath string // ROP_SQLITE_PATH (default: /data/renovate.db)
 
 	// Docker
-	RenovateImage    string // ROP_IMAGE (default: renovate/renovate:latest)
-	CacheVolume      string // ROP_CACHE_VOLUME (default: renovate-cache)
-	ContainerNetwork string // ROP_CONTAINER_NETWORK (default: "")
-	ImagePullPolicy  string // ROP_IMAGE_PULL_POLICY (default: if-not-present)
+	RenovateImage            string // ROP_IMAGE (default: renovate/renovate:latest)
+	CacheVolume              string // ROP_CACHE_VOLUME (default: renovate-cache)
+	ContainerbaseCacheVolume string // ROP_CONTAINERBASE_CACHE_VOLUME (default: renovate-containerbase-cache)
+	ContainerNetwork         string // ROP_CONTAINER_NETWORK (default: "")
+	ImagePullPolicy          string // ROP_IMAGE_PULL_POLICY (default: if-not-present)
 
 	// Execution
 	Parallelism int           // ROP_PARALLELISM (default: 2)
@@ -73,6 +74,17 @@ type Config struct {
 
 	// Image Cache
 	ImageCacheTTL time.Duration // ROP_IMAGE_CACHE_TTL (default: 24h, 0 disables)
+
+	// Resilience
+	RapidFailThreshold int           // ROP_RAPID_FAIL_THRESHOLD (default: 10)
+	RapidFailWindow    time.Duration // ROP_RAPID_FAIL_WINDOW (default: 5m)
+	FailureMinRuntime  time.Duration // ROP_FAILURE_MIN_RUNTIME (default: 30s)
+	BackoffBase        time.Duration // ROP_BACKOFF_BASE (default: 1m)
+	BackoffMax         time.Duration // ROP_BACKOFF_MAX (default: 1h)
+	ReplayQueueCap     int           // ROP_REPLAY_QUEUE_CAP (default: 10000)
+
+	// Metrics
+	MetricsProjectLabel string // ROP_METRICS_PROJECT_LABEL (default: all) — all/breaker/off
 }
 
 // configValues stores a flat map of config values for GetValue lookups.
@@ -84,24 +96,25 @@ var configValues map[string]string
 // Returns an error if required variables are missing.
 func Load() (*Config, error) {
 	cfg := &Config{
-		SQLitePath:       envOrDefault("ROP_SQLITE_PATH", "/data/renovate.db"),
-		RenovateImage:    envOrDefault("ROP_IMAGE", "renovate/renovate:latest"),
-		CacheVolume:      envOrDefault("ROP_CACHE_VOLUME", "renovate-cache"),
-		ContainerNetwork: os.Getenv("ROP_CONTAINER_NETWORK"),
-		ImagePullPolicy:  envOrDefault("ROP_IMAGE_PULL_POLICY", "if-not-present"),
-		Platform:         envOrDefault("RENOVATE_PLATFORM", "forgejo"),
-		PlatformEndpoint: os.Getenv("ROP_PLATFORM_ENDPOINT"),
-		PlatformToken:    os.Getenv("RENOVATE_TOKEN"),
-		CronSchedule:     envOrDefault("ROP_CRON_SCHEDULE", "0 */4 * * *"),
-		ServerPort:       envOrDefault("ROP_SERVER_PORT", "8081"),
-		OIDCIssuerURL:    os.Getenv("ROP_OIDC_ISSUER_URL"),
-		OIDCClientID:     os.Getenv("ROP_OIDC_CLIENT_ID"),
-		OIDCClientSecret: os.Getenv("ROP_OIDC_CLIENT_SECRET"),
-		OIDCRedirectURL:  os.Getenv("ROP_OIDC_REDIRECT_URL"),
-		SessionSecret:    os.Getenv("ROP_SESSION_SECRET"),
-		DiscoveryFilters: os.Getenv("ROP_DISCOVERY_FILTERS"),
-		DiscoverTopics:   os.Getenv("ROP_DISCOVER_TOPICS"),
-		LogLevel:         envOrDefault("ROP_LOG_LEVEL", "info"),
+		SQLitePath:               envOrDefault("ROP_SQLITE_PATH", "/data/renovate.db"),
+		RenovateImage:            envOrDefault("ROP_IMAGE", "renovate/renovate:latest"),
+		CacheVolume:              envOrDefault("ROP_CACHE_VOLUME", "renovate-cache"),
+		ContainerbaseCacheVolume: envOrDefault("ROP_CONTAINERBASE_CACHE_VOLUME", "renovate-containerbase-cache"),
+		ContainerNetwork:         os.Getenv("ROP_CONTAINER_NETWORK"),
+		ImagePullPolicy:          envOrDefault("ROP_IMAGE_PULL_POLICY", "if-not-present"),
+		Platform:                 envOrDefault("RENOVATE_PLATFORM", "forgejo"),
+		PlatformEndpoint:         os.Getenv("ROP_PLATFORM_ENDPOINT"),
+		PlatformToken:            os.Getenv("RENOVATE_TOKEN"),
+		CronSchedule:             envOrDefault("ROP_CRON_SCHEDULE", "0 */4 * * *"),
+		ServerPort:               envOrDefault("ROP_SERVER_PORT", "8081"),
+		OIDCIssuerURL:            os.Getenv("ROP_OIDC_ISSUER_URL"),
+		OIDCClientID:             os.Getenv("ROP_OIDC_CLIENT_ID"),
+		OIDCClientSecret:         os.Getenv("ROP_OIDC_CLIENT_SECRET"),
+		OIDCRedirectURL:          os.Getenv("ROP_OIDC_REDIRECT_URL"),
+		SessionSecret:            os.Getenv("ROP_SESSION_SECRET"),
+		DiscoveryFilters:         os.Getenv("ROP_DISCOVERY_FILTERS"),
+		DiscoverTopics:           os.Getenv("ROP_DISCOVER_TOPICS"),
+		LogLevel:                 envOrDefault("ROP_LOG_LEVEL", "info"),
 	}
 
 	// Parse integers
@@ -134,6 +147,17 @@ func Load() (*Config, error) {
 	// Parse image cache TTL
 	cfg.ImageCacheTTL = envOrDefaultDuration("ROP_IMAGE_CACHE_TTL", 24*time.Hour)
 
+	// Parse resilience settings
+	cfg.RapidFailThreshold = envOrDefaultInt("ROP_RAPID_FAIL_THRESHOLD", 10)
+	cfg.RapidFailWindow = envOrDefaultDuration("ROP_RAPID_FAIL_WINDOW", 5*time.Minute)
+	cfg.FailureMinRuntime = envOrDefaultDuration("ROP_FAILURE_MIN_RUNTIME", 30*time.Second)
+	cfg.BackoffBase = envOrDefaultDuration("ROP_BACKOFF_BASE", 1*time.Minute)
+	cfg.BackoffMax = envOrDefaultDuration("ROP_BACKOFF_MAX", 1*time.Hour)
+	cfg.ReplayQueueCap = envOrDefaultInt("ROP_REPLAY_QUEUE_CAP", 10000)
+
+	// Parse metrics settings
+	cfg.MetricsProjectLabel = envOrDefault("ROP_METRICS_PROJECT_LABEL", "all")
+
 	// Validate required fields
 	if cfg.PlatformEndpoint == "" {
 		return nil, fmt.Errorf("ROP_PLATFORM_ENDPOINT is required but not set")
@@ -145,31 +169,39 @@ func Load() (*Config, error) {
 
 	// Populate the flat map for GetValue
 	configValues = map[string]string{
-		"ROP_SQLITE_PATH":           cfg.SQLitePath,
-		"ROP_IMAGE":                 cfg.RenovateImage,
-		"ROP_CACHE_VOLUME":          cfg.CacheVolume,
-		"ROP_CONTAINER_NETWORK":     cfg.ContainerNetwork,
-		"ROP_IMAGE_PULL_POLICY":     cfg.ImagePullPolicy,
-		"ROP_PARALLELISM":           strconv.Itoa(cfg.Parallelism),
-		"ROP_JOB_TIMEOUT":           strconv.Itoa(jobTimeoutSec),
-		"ROP_SHUTDOWN_GRACE_PERIOD": strconv.Itoa(gracePeriodSec),
+		"ROP_SQLITE_PATH":                cfg.SQLitePath,
+		"ROP_IMAGE":                      cfg.RenovateImage,
+		"ROP_CACHE_VOLUME":               cfg.CacheVolume,
+		"ROP_CONTAINERBASE_CACHE_VOLUME": cfg.ContainerbaseCacheVolume,
+		"ROP_CONTAINER_NETWORK":          cfg.ContainerNetwork,
+		"ROP_IMAGE_PULL_POLICY":          cfg.ImagePullPolicy,
+		"ROP_PARALLELISM":                strconv.Itoa(cfg.Parallelism),
+		"ROP_JOB_TIMEOUT":                strconv.Itoa(jobTimeoutSec),
+		"ROP_SHUTDOWN_GRACE_PERIOD":      strconv.Itoa(gracePeriodSec),
 		"RENOVATE_PLATFORM":              cfg.Platform,
-		"ROP_PLATFORM_ENDPOINT":     cfg.PlatformEndpoint,
-		"RENOVATE_TOKEN":            cfg.PlatformToken,
-		"ROP_CRON_SCHEDULE":         cfg.CronSchedule,
-		"ROP_CRON_SKIP_DISCOVERY":   strconv.FormatBool(cfg.CronSkipDiscovery),
-		"ROP_SERVER_PORT":           cfg.ServerPort,
-		"ROP_WEBHOOK_ENABLED":       strconv.FormatBool(cfg.WebhookEnabled),
-		"ROP_OIDC_ISSUER_URL":       cfg.OIDCIssuerURL,
-		"ROP_OIDC_CLIENT_ID":        cfg.OIDCClientID,
-		"ROP_OIDC_CLIENT_SECRET":    cfg.OIDCClientSecret,
-		"ROP_OIDC_REDIRECT_URL":     cfg.OIDCRedirectURL,
-		"ROP_SESSION_SECRET":        cfg.SessionSecret,
-		"ROP_DISCOVERY_FILTERS":     cfg.DiscoveryFilters,
-		"ROP_DISCOVER_TOPICS":       cfg.DiscoverTopics,
-		"ROP_SKIP_FORKS":            strconv.FormatBool(cfg.SkipForks),
-		"ROP_LOG_LEVEL":             cfg.LogLevel,
-		"ROP_MAX_REQUEST_BODY":      strconv.FormatInt(cfg.MaxRequestBody, 10),
+		"ROP_PLATFORM_ENDPOINT":          cfg.PlatformEndpoint,
+		"RENOVATE_TOKEN":                 cfg.PlatformToken,
+		"ROP_CRON_SCHEDULE":              cfg.CronSchedule,
+		"ROP_CRON_SKIP_DISCOVERY":        strconv.FormatBool(cfg.CronSkipDiscovery),
+		"ROP_SERVER_PORT":                cfg.ServerPort,
+		"ROP_WEBHOOK_ENABLED":            strconv.FormatBool(cfg.WebhookEnabled),
+		"ROP_OIDC_ISSUER_URL":            cfg.OIDCIssuerURL,
+		"ROP_OIDC_CLIENT_ID":             cfg.OIDCClientID,
+		"ROP_OIDC_CLIENT_SECRET":         cfg.OIDCClientSecret,
+		"ROP_OIDC_REDIRECT_URL":          cfg.OIDCRedirectURL,
+		"ROP_SESSION_SECRET":             cfg.SessionSecret,
+		"ROP_DISCOVERY_FILTERS":          cfg.DiscoveryFilters,
+		"ROP_DISCOVER_TOPICS":            cfg.DiscoverTopics,
+		"ROP_SKIP_FORKS":                 strconv.FormatBool(cfg.SkipForks),
+		"ROP_LOG_LEVEL":                  cfg.LogLevel,
+		"ROP_MAX_REQUEST_BODY":           strconv.FormatInt(cfg.MaxRequestBody, 10),
+		"ROP_RAPID_FAIL_THRESHOLD":       strconv.Itoa(cfg.RapidFailThreshold),
+		"ROP_RAPID_FAIL_WINDOW":          cfg.RapidFailWindow.String(),
+		"ROP_FAILURE_MIN_RUNTIME":        cfg.FailureMinRuntime.String(),
+		"ROP_BACKOFF_BASE":               cfg.BackoffBase.String(),
+		"ROP_BACKOFF_MAX":                cfg.BackoffMax.String(),
+		"ROP_REPLAY_QUEUE_CAP":           strconv.Itoa(cfg.ReplayQueueCap),
+		"ROP_METRICS_PROJECT_LABEL":      cfg.MetricsProjectLabel,
 	}
 
 	return cfg, nil
