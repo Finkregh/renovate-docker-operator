@@ -20,6 +20,7 @@ import (
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/api"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/discovery"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/executor"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/imageupdate"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/metrics"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/resilience"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/scheduler"
@@ -40,6 +41,15 @@ type Server struct {
 	maxRequestBody int64
 	resilience     *resilience.Manager
 	metrics        *metrics.Recorder
+	imageStatus    imageStatusSource
+}
+
+// imageStatusSource is the narrow read-side contract the /image-status
+// handler needs. *imageupdate.Poller satisfies it; tests substitute a
+// hand-rolled fake. Kept as an interface (not a concrete pointer) so the
+// handler can be exercised without spinning up a real poller.
+type imageStatusSource interface {
+	Snapshot() imageupdate.Status
 }
 
 // Config holds server configuration.
@@ -84,6 +94,12 @@ func (s *Server) SetResilience(mgr *resilience.Manager) {
 // Nil-safe: if not set, /metrics returns 501.
 func (s *Server) SetMetrics(rec *metrics.Recorder) { s.metrics = rec }
 
+// SetPoller injects the image-update Poller. Nil-safe: if not set, the
+// /api/v1/image-status handler returns a stable "disabled" shape
+// (`{"enabled":false,"ready":true}`), so operators without the poller
+// wired still get a well-formed response.
+func (s *Server) SetPoller(p imageStatusSource) { s.imageStatus = p }
+
 // Start begins listening on the configured port. Non-blocking.
 func (s *Server) Start() {
 	router := mux.NewRouter()
@@ -100,6 +116,7 @@ func (s *Server) Start() {
 	// API v1 routes
 	apiSub := router.PathPrefix("/api/v1").Subrouter()
 	apiSub.HandleFunc("/version", s.getVersion).Methods("GET")
+	apiSub.HandleFunc("/image-status", s.getImageStatus).Methods("GET")
 	apiSub.HandleFunc("/renovatejobs", s.getRenovateJobs).Methods("GET")
 	apiSub.HandleFunc("/renovate", s.runRenovateForProject).Methods("POST")
 	apiSub.HandleFunc("/renovate/all", s.runRenovateForAllProjects).Methods("POST")
@@ -133,11 +150,22 @@ func (s *Server) Start() {
 
 	go func() {
 		s.logger.Info("starting HTTP server", "port", port)
-		if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			s.logger.Error("HTTP server error", "error", err)
+		if err := s.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			// Fatal-on-unexpected-exit invariant: a dead HTTP listener means the
+			// UI, webhook, healthz, and metrics endpoints are all down. Docker's
+			// healthcheck can still see a live process, masking the outage. Log
+			// with a stack-worthy message and exit non-zero so the container
+			// restarts. Tests override exitFn to observe without terminating.
+			s.logger.Error("HTTP server exited unexpectedly", "error", err)
+			exitFn(1)
 		}
 	}()
 }
+
+// exitFn is the process-exit hook used when ListenAndServe returns an
+// unexpected error. Overridden in tests to capture fatal invocations
+// without terminating the test binary.
+var exitFn = os.Exit
 
 // Shutdown gracefully stops the server.
 func (s *Server) Shutdown(ctx context.Context) error {
@@ -204,6 +232,27 @@ func buildDebugModeInfo(opts *api.RenovateExecutionOptions) *api.DebugModeInfo {
 
 func (s *Server) getVersion(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"version": s.version})
+}
+
+// getImageStatus serves a JSON snapshot of the runner image update state.
+// Cheap non-blocking read — always returns 200 with the current struct,
+// never waits for a poller tick.
+//
+// Response contract (matches internal/imageupdate.Status):
+//
+//	{"enabled": false, "ready": true}  — poller disabled
+//	{"enabled": true, "ready": false, "configuredRef": "...", ...}  — first tick pending
+//	{"enabled": true, "ready": true, "updateAvailable": bool, ...}  — normal
+//
+// Cache-Control: no-store is explicit — operators commonly run behind
+// a reverse proxy, and a cached response would hide a fresh update.
+func (s *Server) getImageStatus(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if s.imageStatus == nil {
+		writeJSON(w, http.StatusOK, imageupdate.Status{Enabled: false, Ready: true})
+		return
+	}
+	writeJSON(w, http.StatusOK, s.imageStatus.Snapshot())
 }
 
 func (s *Server) getRenovateJobs(w http.ResponseWriter, r *http.Request) {

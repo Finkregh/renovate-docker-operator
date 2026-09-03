@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/api"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/imageupdate"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/metrics"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/resilience"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/statestore"
@@ -290,6 +291,133 @@ func TestActorFromRequest_Anonymous(t *testing.T) {
 	req := httptest.NewRequestWithContext(context.Background(), "POST", "/", nil)
 	if got := actorFromRequest(req); got != "anonymous" {
 		t.Errorf("expected actor=anonymous, got %q", got)
+	}
+}
+
+// --- Image-status handler ---
+
+// fakeImageStatus satisfies the imageStatusSource interface.
+type fakeImageStatus struct{ snap imageupdate.Status }
+
+func (f fakeImageStatus) Snapshot() imageupdate.Status { return f.snap }
+
+func TestImageStatusEndpoint(t *testing.T) {
+	lastChecked := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name      string
+		source    imageStatusSource // nil => SetPoller never called
+		wantField map[string]any    // subset of decoded JSON to assert
+	}{
+		{
+			name:      "poller_unset_returns_disabled_shape",
+			source:    nil,
+			wantField: map[string]any{"enabled": false, "ready": true},
+		},
+		{
+			name:      "disabled",
+			source:    fakeImageStatus{snap: imageupdate.Status{Enabled: false, Ready: true}},
+			wantField: map[string]any{"enabled": false, "ready": true},
+		},
+		{
+			name: "enabled_first_tick_pending",
+			source: fakeImageStatus{snap: imageupdate.Status{
+				Enabled:       true,
+				Ready:         false,
+				ConfiguredRef: "renovate/renovate:latest",
+				Registry:      "index.docker.io",
+				Repository:    "renovate/renovate",
+				Tag:           "latest",
+			}},
+			wantField: map[string]any{
+				"enabled":       true,
+				"ready":         false,
+				"configuredRef": "renovate/renovate:latest",
+				"registry":      "index.docker.io",
+				"repository":    "renovate/renovate",
+				"tag":           "latest",
+			},
+		},
+		{
+			name: "ready_ok_no_update",
+			source: fakeImageStatus{snap: imageupdate.Status{
+				Enabled:         true,
+				Ready:           true,
+				ConfiguredRef:   "renovate/renovate:latest",
+				Digest:          "sha256:aaa",
+				UpdateAvailable: false,
+				LastChecked:     lastChecked,
+			}},
+			wantField: map[string]any{
+				"ready":           true,
+				"updateAvailable": false,
+			},
+		},
+		{
+			name: "ready_with_error",
+			source: fakeImageStatus{snap: imageupdate.Status{
+				Enabled:       true,
+				Ready:         true,
+				ConfiguredRef: "renovate/renovate:latest",
+				LastError:     "network: dial tcp: timeout",
+				LastChecked:   lastChecked,
+			}},
+			wantField: map[string]any{
+				"ready":     true,
+				"lastError": "network: dial tcp: timeout",
+			},
+		},
+		{
+			name: "ready_update_available",
+			source: fakeImageStatus{snap: imageupdate.Status{
+				Enabled:         true,
+				Ready:           true,
+				ConfiguredRef:   "renovate/renovate:44.10.0",
+				Tag:             "44.10.0",
+				UpdateAvailable: true,
+				LatestTag:       "44.11.3",
+				LastChecked:     lastChecked,
+			}},
+			wantField: map[string]any{
+				"updateAvailable": true,
+				"latestTag":       "44.11.3",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &Server{}
+			if tt.source != nil {
+				s.SetPoller(tt.source)
+			}
+			router := mux.NewRouter()
+			router.HandleFunc("/api/v1/image-status", s.getImageStatus).Methods("GET")
+
+			req := httptest.NewRequestWithContext(context.Background(), "GET", "/api/v1/image-status", nil)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d", w.Code)
+			}
+			if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+				t.Errorf("expected Content-Type application/json, got %q", ct)
+			}
+			if cc := w.Header().Get("Cache-Control"); cc != "no-store" {
+				t.Errorf("expected Cache-Control no-store, got %q", cc)
+			}
+
+			var body map[string]any
+			if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+				t.Fatalf("failed to decode response: %v", err)
+			}
+			for k, want := range tt.wantField {
+				if got := body[k]; got != want {
+					t.Errorf("field %q = %v (%T), want %v (%T)", k, got, got, want, want)
+				}
+			}
+		})
 	}
 }
 

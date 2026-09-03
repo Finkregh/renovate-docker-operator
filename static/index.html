@@ -1098,6 +1098,7 @@
           pending: 0,
         });
         const [version, setVersion] = useState(null);
+        const [imageStatus, setImageStatus] = useState(null);
         const [breaker, setBreaker] = useState(null);
         const [toasts, setToasts] = useState([]);
         const nextToastIdRef = useRef(0);
@@ -1337,6 +1338,13 @@
         const [webhookOption, setWebhookOption] = useState(
           job?.webhookEnabled ?? false,
         );
+        // The useState initializer above only runs on first render, when `job`
+        // is still null (jobs load asynchronously), so webhookOption would lock
+        // to false and the checkbox would render unchecked even when the job
+        // reports webhookEnabled=true. Re-sync whenever the loaded value changes.
+        useEffect(() => {
+          if (job) setWebhookOption(job.webhookEnabled ?? false);
+        }, [job?.webhookEnabled]);
 
         const handleSort = (key) => {
           let direction = "asc";
@@ -1806,6 +1814,18 @@
         }, []);
 
         useEffect(() => {
+          const loadImageStatus = () => {
+            fetch(BASE + "/api/v1/image-status")
+              .then((res) => (res.ok ? res.json() : null))
+              .then((data) => data && setImageStatus(data))
+              .catch(() => {});
+          };
+          loadImageStatus();
+          const interval = setInterval(loadImageStatus, 60000);
+          return () => clearInterval(interval);
+        }, []);
+
+        useEffect(() => {
           loadJobs();
           const interval = setInterval(loadJobs, 30000);
           return () => clearInterval(interval);
@@ -1832,7 +1852,11 @@
               />
             )}
 
-            <SiteHeader version={version} authInfo={authInfo}>
+            <SiteHeader
+              version={version}
+              imageStatus={imageStatus}
+              authInfo={authInfo}
+            >
               <StatBadge
                 label="All"
                 value={loading ? "—" : stats.total}

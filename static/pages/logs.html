@@ -177,6 +177,7 @@
         const [streamPhase, setStreamPhase] = useState(null); // null | "loading" | "streaming"
         const [error, setError] = useState(null);
         const [version, setVersion] = useState(null);
+        const [imageStatus, setImageStatus] = useState(null);
         const [authInfo, setAuthInfo] = useState({ enabled: false });
         const [copied, setCopied] = useState(false);
         const [searchQuery, setSearchQuery] = useState("");
@@ -232,6 +233,18 @@
             .then((r) => (r.ok ? r.json() : null))
             .then((d) => d && setVersion(d.version))
             .catch(() => {});
+        }, []);
+
+        useEffect(() => {
+          const loadImageStatus = () => {
+            fetch(BASE + "/api/v1/image-status")
+              .then((r) => (r.ok ? r.json() : null))
+              .then((d) => d && setImageStatus(d))
+              .catch(() => {});
+          };
+          loadImageStatus();
+          const interval = setInterval(loadImageStatus, 60000);
+          return () => clearInterval(interval);
         }, []);
 
         // Check project running status
@@ -459,7 +472,11 @@
 
         return (
           <div className="min-h-screen flex flex-col">
-            <SiteHeader version={version} authInfo={authInfo}>
+            <SiteHeader
+              version={version}
+              imageStatus={imageStatus}
+              authInfo={authInfo}
+            >
               <StatBadge
                 label="Errors"
                 value={errorCount === null ? "-" : errorCount}

@@ -5,6 +5,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/robfig/cron/v3"
 )
 
 func testLogger() *slog.Logger {
@@ -118,4 +120,39 @@ func TestStopWithoutStart(t *testing.T) {
 
 	// Stop without Start should not panic
 	s.Stop()
+}
+
+// TestConstructedWithEmptyChain asserts that New() constructs the underlying
+// cron with a caller-supplied empty chain (cron.WithChain()), rather than
+// relying on whatever cron/v3's default happens to be. This is a static
+// invariant check that defends against an upstream regression where cron/v3
+// starts installing a Recover wrapper by default.
+//
+// A truly behavioral test would fork a subprocess, let a scheduled job panic,
+// and assert non-zero exit — overkill for the payoff. This test ensures the
+// construction call site continues to explicitly opt out of any default
+// chain, which is the mechanism we rely on.
+func TestConstructedWithEmptyChain(t *testing.T) {
+	t.Parallel()
+	s := New(testLogger())
+
+	if err := s.AddFunc("@every 1h", "probe", func() {}); err != nil {
+		t.Fatalf("AddFunc() failed: %v", err)
+	}
+
+	entries := s.cron.Entries()
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 cron entry, got %d", len(entries))
+	}
+
+	// With an empty chain, AddJob wraps the FuncJob via chain.Then(cmd),
+	// which for an empty chain returns cmd unchanged. So WrappedJob is a
+	// naked cron.FuncJob, not a chain-wrapped one. If a future refactor
+	// re-adds cron.Recover (or any wrapper), WrappedJob's dynamic type
+	// changes to the wrapper's function-typed type.
+	if _, ok := entries[0].WrappedJob.(cron.FuncJob); !ok {
+		t.Fatalf("WrappedJob = %T, want cron.FuncJob — a wrapper appears to "+
+			"be installed in the cron chain; the fatal-on-panic invariant "+
+			"may be broken", entries[0].WrappedJob)
+	}
 }

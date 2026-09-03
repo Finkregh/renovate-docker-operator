@@ -220,6 +220,56 @@ func TestSetQueueDepth(t *testing.T) {
 	}
 }
 
+func TestIncTick(t *testing.T) {
+	r, err := New(Config{ProjectLabelMode: ModeAll})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.IncTick("image-update-poller")
+	r.IncTick("image-update-poller")
+	r.IncTick("image-refresher")
+
+	if val := testutil.ToFloat64(r.superviseTicks.WithLabelValues("image-update-poller")); val != 2 {
+		t.Errorf("expected supervise_ticks_total{loop=image-update-poller}=2, got %v", val)
+	}
+	if val := testutil.ToFloat64(r.superviseTicks.WithLabelValues("image-refresher")); val != 1 {
+		t.Errorf("expected supervise_ticks_total{loop=image-refresher}=1, got %v", val)
+	}
+}
+
+func TestIncError(t *testing.T) {
+	r, err := New(Config{ProjectLabelMode: ModeAll})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.IncError("image-update-poller", "network")
+	r.IncError("image-update-poller", "network")
+	r.IncError("image-update-poller", "auth")
+
+	if val := testutil.ToFloat64(r.superviseErrors.WithLabelValues("image-update-poller", "network")); val != 2 {
+		t.Errorf("expected supervise_errors_total{loop=image-update-poller,kind=network}=2, got %v", val)
+	}
+	if val := testutil.ToFloat64(r.superviseErrors.WithLabelValues("image-update-poller", "auth")); val != 1 {
+		t.Errorf("expected supervise_errors_total{loop=image-update-poller,kind=auth}=1, got %v", val)
+	}
+}
+
+func TestSetImageUpdateAvailable(t *testing.T) {
+	r, err := New(Config{ProjectLabelMode: ModeAll})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const ref = "renovate/renovate:latest"
+	r.SetImageUpdateAvailable(ref, true)
+	if val := testutil.ToFloat64(r.imageUpdateAvailable.WithLabelValues(ref)); val != 1 {
+		t.Errorf("expected image_update_available{ref=%s}=1, got %v", ref, val)
+	}
+	r.SetImageUpdateAvailable(ref, false)
+	if val := testutil.ToFloat64(r.imageUpdateAvailable.WithLabelValues(ref)); val != 0 {
+		t.Errorf("expected image_update_available{ref=%s}=0, got %v", ref, val)
+	}
+}
+
 func TestObserveContainerDuration(t *testing.T) {
 	r, err := New(Config{ProjectLabelMode: ModeAll})
 	if err != nil {

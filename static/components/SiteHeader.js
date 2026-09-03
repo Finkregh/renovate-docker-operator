@@ -1,4 +1,16 @@
-function SiteHeader({ version, authInfo, children }) {
+function imageStatusTooltip(s) {
+	if (!s || !s.enabled) return s?.configuredRef;
+	if (!s.ready) return `${s.configuredRef}\nchecking registry…`;
+	const lines = [s.configuredRef];
+	if (s.digest) lines.push(s.digest);
+	if (s.updateAvailable && s.latestTag)
+		lines.push(`→ ${s.latestTag} ${s.latestDigest || ""}`.trim());
+	if (s.lastError) lines.push(`last check failed: ${s.lastError}`);
+	if (s.lastChecked) lines.push(`last checked: ${s.lastChecked}`);
+	return lines.join("\n");
+}
+
+function SiteHeader({ version, imageStatus, authInfo, children }) {
 	const showAuth = authInfo && authInfo.enabled && authInfo.authenticated;
 	const base = window.__BASE_PATH__ || "";
 
@@ -46,10 +58,40 @@ function SiteHeader({ version, authInfo, children }) {
 									Way
 								</p>
 							</div>
-							{version && (
-								<span className="text-xs text-gray-400 dark:text-slate-500 font-mono">
-									v{version}
-								</span>
+							{(version || imageStatus) && (
+								<div className="flex flex-col items-start leading-tight">
+									{version && (
+										<span className="text-xs text-gray-400 dark:text-slate-500 font-mono">
+											v{version}
+										</span>
+									)}
+									{imageStatus && (
+										<span
+											className={`text-xs font-mono ${
+												imageStatus.lastError
+													? "text-yellow-600 dark:text-yellow-400"
+													: imageStatus.updateAvailable
+														? "text-amber-500 dark:text-amber-400"
+														: "text-gray-400 dark:text-slate-500"
+											}`}
+											title={imageStatusTooltip(imageStatus)}
+										>
+											{imageStatus.lastError && (
+												<span aria-label="warning">⚠ </span>
+											)}
+											{imageStatus.configuredRef}
+											{imageStatus.updateAvailable && imageStatus.latestTag && (
+												<>
+													{" "}
+													·{" "}
+													<span className="underline decoration-dotted">
+														update: {imageStatus.latestTag}
+													</span>
+												</>
+											)}
+										</span>
+									)}
+								</div>
 							)}
 						</div>
 

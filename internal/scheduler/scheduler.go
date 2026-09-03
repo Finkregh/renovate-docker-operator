@@ -15,9 +15,17 @@ type Scheduler struct {
 }
 
 // New creates a new Scheduler instance.
+//
+// The cron instance is constructed with an explicit empty chain
+// (`cron.WithChain()`), which replaces the default `cron.Recover` panic
+// recoverer. This enforces the fatal-on-panic invariant: a panic inside a
+// scheduled job propagates to the Go runtime and terminates the process
+// (with stack trace on stderr) rather than being silently swallowed by the
+// cron chain. See the "Cross-cutting invariants" section of the image
+// freshness plan for rationale.
 func New(logger *slog.Logger) *Scheduler {
 	return &Scheduler{
-		cron:   cron.New(),
+		cron:   cron.New(cron.WithChain()),
 		logger: logger,
 	}
 }
