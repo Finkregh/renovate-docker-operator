@@ -71,19 +71,22 @@ type Recorder struct {
 	rapidFailsTotal    prometheus.Counter
 	dispatchTotal      *prometheus.CounterVec
 	breakerTransitions *prometheus.CounterVec
+	superviseTicks     *prometheus.CounterVec
+	superviseErrors    *prometheus.CounterVec
 
 	// --- histograms ---
 	containerDuration *prometheus.HistogramVec
 
 	// --- gauges ---
-	projectsScheduled prometheus.Gauge
-	projectsRunning   prometheus.Gauge
-	discoveryRepos    *prometheus.GaugeVec
-	discoveryDuration *prometheus.GaugeVec
-	breakerOpen       prometheus.Gauge
-	projectBackoff    *prometheus.GaugeVec
-	projectFailures   *prometheus.GaugeVec
-	queueDepth        prometheus.Gauge
+	projectsScheduled    prometheus.Gauge
+	projectsRunning      prometheus.Gauge
+	discoveryRepos       *prometheus.GaugeVec
+	discoveryDuration    *prometheus.GaugeVec
+	breakerOpen          prometheus.Gauge
+	projectBackoff       *prometheus.GaugeVec
+	projectFailures      *prometheus.GaugeVec
+	queueDepth           prometheus.Gauge
+	imageUpdateAvailable *prometheus.GaugeVec
 }
 
 // New creates a Recorder with all metrics registered on a fresh registry.
@@ -254,6 +257,32 @@ func New(cfg Config) (*Recorder, error) {
 	})
 	reg.MustRegister(r.queueDepth)
 
+	// --- renovate_operator_supervise_ticks_total ---
+	// Operator-level (no project label): total ticks per supervised loop.
+	r.superviseTicks = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "renovate_operator_supervise_ticks_total",
+		Help: "Total ticks executed by each supervised loop.",
+	}, []string{"loop"})
+	reg.MustRegister(r.superviseTicks)
+
+	// --- renovate_operator_supervise_errors_total ---
+	// Operator-level (no project label): per-loop error count by classification
+	// (network/context/parse/auth/other, from supervise.ClassifyError).
+	r.superviseErrors = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "renovate_operator_supervise_errors_total",
+		Help: "Per-loop error count by classification.",
+	}, []string{"loop", "kind"})
+	reg.MustRegister(r.superviseErrors)
+
+	// --- renovate_operator_image_update_available ---
+	// Operator-level (no project label): 1 when a runner-image update is
+	// available, 0 otherwise, labelled by the configured image ref.
+	r.imageUpdateAvailable = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "renovate_operator_image_update_available",
+		Help: "1 when an image update is available, 0 otherwise.",
+	}, []string{"ref"})
+	reg.MustRegister(r.imageUpdateAvailable)
+
 	return r, nil
 }
 
@@ -381,6 +410,29 @@ func (r *Recorder) SetProjectsRunning(n int) {
 // SetQueueDepth sets the renovate_queue_depth gauge (webhook replay queue).
 func (r *Recorder) SetQueueDepth(n int) {
 	r.queueDepth.Set(float64(n))
+}
+
+// IncTick increments renovate_operator_supervise_ticks_total for the named
+// supervised loop. Signature matches supervise.Metrics.IncTick so *Recorder
+// structurally satisfies that interface without importing internal/supervise.
+func (r *Recorder) IncTick(loop string) {
+	r.superviseTicks.With(prometheus.Labels{"loop": loop}).Inc()
+}
+
+// IncError increments renovate_operator_supervise_errors_total for the named
+// loop and error classification. Signature matches supervise.Metrics.IncError.
+func (r *Recorder) IncError(loop, kind string) {
+	r.superviseErrors.With(prometheus.Labels{"loop": loop, "kind": kind}).Inc()
+}
+
+// SetImageUpdateAvailable sets renovate_operator_image_update_available to 1
+// when an update is available for the given image ref, 0 otherwise.
+func (r *Recorder) SetImageUpdateAvailable(ref string, available bool) {
+	v := 0.0
+	if available {
+		v = 1.0
+	}
+	r.imageUpdateAvailable.With(prometheus.Labels{"ref": ref}).Set(v)
 }
 
 // hasProjectLabel reports whether a project label should be attached for the
