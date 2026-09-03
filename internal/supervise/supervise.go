@@ -57,10 +57,24 @@ func WithExitFn(fn func(int)) Option {
 	}
 }
 
+// WithPerTickBody marks the body as a single-tick function that is EXPECTED
+// to return nil after each successful tick (e.g. imageupdate.Poller.Tick or
+// executor.RefreshImage). For such bodies the ticker itself provides the
+// looping, so a nil return is a healthy completed tick rather than the
+// "loop body returned unexpectedly" fatal condition that applies to bodies
+// which own their own for/select loop. Errors and panics remain handled
+// exactly as before (logged/warned and retried; panics fatal).
+func WithPerTickBody() Option {
+	return func(c *loopConfig) {
+		c.perTickBody = true
+	}
+}
+
 type loopConfig struct {
-	metrics Metrics
-	exitFn  func(int)
-	halted  bool // set by executeTick on fatal; breaks the loop in tests where exitFn doesn't actually exit
+	metrics     Metrics
+	exitFn      func(int)
+	perTickBody bool // when true, a nil return from body is a completed tick, not a fatal bug
+	halted      bool // set by executeTick on fatal; breaks the loop in tests where exitFn doesn't actually exit
 }
 
 type nopMetrics struct{}
@@ -161,8 +175,11 @@ func executeTick(ctx context.Context, l *slog.Logger, name string, body func(con
 	}
 
 	// body returned nil.
-	if fatalOnNilReturn && ctx.Err() == nil {
-		// Unexpected: body completed without error while ctx is still live.
+	if fatalOnNilReturn && !cfg.perTickBody && ctx.Err() == nil {
+		// Unexpected: a self-looping body completed without error while ctx
+		// is still live. Per-tick bodies (WithPerTickBody) legitimately
+		// return nil after each successful tick and fall through to normal
+		// completion below.
 		l.ErrorContext(ctx, "supervise loop body returned unexpectedly")
 		cfg.halted = true
 		cfg.exitFn(1)

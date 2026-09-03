@@ -198,6 +198,39 @@ func TestLoop_BodyReturnsNilWithLiveCtxIsFatal(t *testing.T) {
 	}
 }
 
+func TestLoop_PerTickBodyNilReturnIsNotFatal(t *testing.T) {
+	t.Parallel()
+	var exitCode atomic.Int32
+	exitCode.Store(-1)
+	var calls atomic.Int32
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// A legitimate per-tick body: returns nil after each successful tick.
+	// The ticker provides the looping; nil must NOT be treated as fatal.
+	body := func(_ context.Context) error {
+		if calls.Add(1) >= 2 {
+			cancel() // let the loop exit cleanly after a couple of ticks
+		}
+		return nil
+	}
+
+	var buf bytes.Buffer
+	Loop(ctx, testLogger(&buf), "test-pertick", 1*time.Millisecond, body,
+		WithExitFn(func(code int) { exitCode.Store(int32(code)) }),
+		WithPerTickBody())
+
+	if got := exitCode.Load(); got != -1 {
+		t.Fatalf("exitFn should not be called for a per-tick body returning nil, got code %d", got)
+	}
+	if strings.Contains(buf.String(), "supervise loop body returned unexpectedly") {
+		t.Fatal("per-tick body returning nil must not log the unexpected-return fatal")
+	}
+	if got := calls.Load(); got < 2 {
+		t.Fatalf("expected body to tick at least twice, got %d", got)
+	}
+}
+
 func TestLoop_IntervalZeroCallsBodyOnce(t *testing.T) {
 	t.Parallel()
 	var calls atomic.Int32

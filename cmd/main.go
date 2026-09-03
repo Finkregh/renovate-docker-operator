@@ -156,7 +156,7 @@ func run(exitFn func(int)) error {
 	// the startup probe. TTL == 0 disables the loop entirely; pullImage
 	// falls back to its "image missing locally" safety net.
 	if cfg.ImageCacheTTL > 0 {
-		go supervise.Loop(ctx, logger, "image-refresher", cfg.ImageCacheTTL, exec.RefreshImage, supervise.WithMetrics(metricsRec))
+		go supervise.Loop(ctx, logger, "image-refresher", cfg.ImageCacheTTL, exec.RefreshImage, supervise.WithMetrics(metricsRec), supervise.WithPerTickBody())
 		logger.Info("image refresher started", "interval", cfg.ImageCacheTTL)
 	} else {
 		logger.Info("image refresher disabled (ROP_IMAGE_CACHE_TTL=0)")
@@ -186,7 +186,7 @@ func run(exitFn func(int)) error {
 			metricsRec.SetImageUpdateAvailable(snap.ConfiguredRef, snap.UpdateAvailable)
 			return err
 		}
-		go supervise.Loop(ctx, logger, "image-update-poller", cfg.ImageUpdatePollInterval, pollTick, supervise.WithMetrics(metricsRec))
+		go supervise.Loop(ctx, logger, "image-update-poller", cfg.ImageUpdatePollInterval, pollTick, supervise.WithMetrics(metricsRec), supervise.WithPerTickBody())
 		logger.Info("image update poller started",
 			"interval", cfg.ImageUpdatePollInterval,
 			"image", cfg.RenovateImage,
