@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -15,28 +16,48 @@ import (
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/api"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/discovery"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/executor"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/imageupdate"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/metrics"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/resilience"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/scheduler"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/server"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/statestore"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/supervise"
 )
 
 // Version is set via -ldflags "-X main.Version=..." at build time.
 var Version = "dev"
 
 func main() {
-	if err := run(); err != nil {
+	if err := run(os.Exit); err != nil {
 		fmt.Fprintf(os.Stderr, "fatal: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run() error {
+// run is main() minus os.Exit. exitFn is called synchronously on
+// validation failures that must terminate the process without going
+// through the graceful-shutdown path (e.g. bad ROP_IMAGE, bad
+// ROP_IMAGE_UPDATE_POLL_INTERVAL). Tests inject a recording exitFn to
+// assert the seam without actually killing the process.
+func run(exitFn func(int)) error {
 	// 1. Load configuration (fail fast on missing required vars)
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// 1b. Boot-time validation beyond individual env parses. Fatal via
+	// the exitFn seam so tests can assert the wiring without actually
+	// killing the process. Logging via slog isn't set up yet at this
+	// point — print to stderr and let exitFn take over.
+	if err := config.Validate(cfg, func(ref string) error {
+		_, e := imageupdate.Parse(ref)
+		return e
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "invalid configuration: %v\n", err)
+		exitFn(1)
+		return err // in tests exitFn is a no-op; return so we don't proceed
 	}
 
 	// 2. Set up structured logger
@@ -126,6 +147,52 @@ func run() error {
 		return fmt.Errorf("failed to start executor: %w", err)
 	}
 
+	// 6b. Background image refresher.
+	//
+	// ROP_IMAGE_CACHE_TTL > 0 spawns a supervise.Loop that unconditionally
+	// pulls the configured image on that cadence, keeping the local image
+	// current so the dispatch hot-path never eats pull latency after idle.
+	// The first tick runs immediately (supervise.Loop contract), providing
+	// the startup probe. TTL == 0 disables the loop entirely; pullImage
+	// falls back to its "image missing locally" safety net.
+	if cfg.ImageCacheTTL > 0 {
+		go supervise.Loop(ctx, logger, "image-refresher", cfg.ImageCacheTTL, exec.RefreshImage, supervise.WithMetrics(metricsRec))
+		logger.Info("image refresher started", "interval", cfg.ImageCacheTTL)
+	} else {
+		logger.Info("image refresher disabled (ROP_IMAGE_CACHE_TTL=0)")
+	}
+
+	// 6c. Image-update poller. Owned by the composition root; the
+	// executor doesn't know about it and the poller doesn't know how
+	// it's scheduled — supervise.Loop drives it.
+	registryUA := "renovate-docker-operator/" + Version
+	auth := imageupdate.NewAnonymousAuth(&http.Client{}, registryUA)
+	registryClient := imageupdate.NewClient(registryUA, auth)
+	poller := imageupdate.New(imageupdate.PollerConfig{
+		Enabled:       cfg.CheckUpdateRunnerImage,
+		ConfiguredRef: cfg.RenovateImage,
+	}, registryClient, registryClient, exec, logger)
+	if !cfg.CheckUpdateRunnerImage {
+		poller.MarkDisabled()
+		logger.Info("image update poller disabled (ROP_CHECK_UPDATE_RUNNER_IMAGE=false)")
+	} else {
+		// pollTick wraps poller.Tick so the image_update_available gauge is
+		// refreshed from the poller's own snapshot after every tick. The
+		// snapshot is always safe to read; on tick error UpdateAvailable keeps
+		// its prior value, which is the correct behavior for the gauge.
+		pollTick := func(c context.Context) error {
+			err := poller.Tick(c)
+			snap := poller.Snapshot()
+			metricsRec.SetImageUpdateAvailable(snap.ConfiguredRef, snap.UpdateAvailable)
+			return err
+		}
+		go supervise.Loop(ctx, logger, "image-update-poller", cfg.ImageUpdatePollInterval, pollTick, supervise.WithMetrics(metricsRec))
+		logger.Info("image update poller started",
+			"interval", cfg.ImageUpdatePollInterval,
+			"image", cfg.RenovateImage,
+		)
+	}
+
 	// 7. Set up cron scheduler + dispatch gate
 	sched := scheduler.New(logger)
 	dispatcher := scheduler.NewDispatcher(resMgr, metricsRec, logger)
@@ -140,6 +207,7 @@ func run() error {
 	srv := server.New(store, disc, sched, exec, logger, Version, cfg.MaxRequestBody)
 	srv.SetResilience(resMgr)
 	srv.SetMetrics(metricsRec)
+	srv.SetPoller(poller)
 	srv.Start()
 
 	logger.Info("operator started — waiting for signals")
