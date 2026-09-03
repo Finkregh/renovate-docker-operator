@@ -1098,6 +1098,7 @@
           pending: 0,
         });
         const [version, setVersion] = useState(null);
+        const [imageStatus, setImageStatus] = useState(null);
         const [breaker, setBreaker] = useState(null);
         const [toasts, setToasts] = useState([]);
         const nextToastIdRef = useRef(0);
@@ -1806,6 +1807,18 @@
         }, []);
 
         useEffect(() => {
+          const loadImageStatus = () => {
+            fetch(BASE + "/api/v1/image-status")
+              .then((res) => (res.ok ? res.json() : null))
+              .then((data) => data && setImageStatus(data))
+              .catch(() => {});
+          };
+          loadImageStatus();
+          const interval = setInterval(loadImageStatus, 60000);
+          return () => clearInterval(interval);
+        }, []);
+
+        useEffect(() => {
           loadJobs();
           const interval = setInterval(loadJobs, 30000);
           return () => clearInterval(interval);
@@ -1832,7 +1845,11 @@
               />
             )}
 
-            <SiteHeader version={version} authInfo={authInfo}>
+            <SiteHeader
+              version={version}
+              imageStatus={imageStatus}
+              authInfo={authInfo}
+            >
               <StatBadge
                 label="All"
                 value={loading ? "—" : stats.total}
