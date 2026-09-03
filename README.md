@@ -95,11 +95,15 @@ All configuration is via environment variables:
 | `ROP_CONTAINERBASE_CACHE_VOLUME` | `renovate-containerbase-cache` | Docker volume for Containerbase tool caches (uv, nix, pip, cargo, gradle, m2, gem, …). Safe to delete; refilled on next run. |
 | `ROP_CONTAINER_NETWORK`     | _(empty)_                  | Docker network for Renovate containers                                                  |
 | `ROP_IMAGE_PULL_POLICY`     | `if-not-present`           | When to pull image (`always`, `if-not-present`, `never`)                                |
-| `ROP_IMAGE_CACHE_TTL`       | `24h`                      | Duration to cache the pulled image (0 disables)                                         |
+| `ROP_IMAGE_CACHE_TTL`       | `24h`                      | Duration to cache the pulled image AND background re-pull interval (0 disables both)    |
 | `ROP_JOB_TIMEOUT`           | `1800`                     | Max runtime per Renovate container (seconds)                                            |
 | `ROP_SHUTDOWN_GRACE_PERIOD` | `300`                      | Grace period for stopping containers on shutdown (seconds)                              |
 | `ROP_MAX_REQUEST_BODY`      | `2097152`                  | Max webhook/API request body size in bytes (2 MiB)                                      |
 | `ROP_LOG_LEVEL`             | `info`                     | Log level (`debug`, `info`, `warn`, `error`)                                            |
+| `ROP_CHECK_UPDATE_RUNNER_IMAGE` | `true`              | Enable the registry update-check poller                                                 |
+| `ROP_IMAGE_UPDATE_POLL_INTERVAL` | _(= ROP_IMAGE_CACHE_TTL)_ | How often the poller checks the registry; 15 min floor enforced; `0` = run once at startup |
+
+> **Upgrade note (image update checker):** existing `.env` files keep working unchanged. On upgrade the operator starts polling the registry and refreshing the runner image every 24h by default (the `ROP_IMAGE_CACHE_TTL` default). To opt out entirely, set `ROP_CHECK_UPDATE_RUNNER_IMAGE=false`. A positive `ROP_IMAGE_UPDATE_POLL_INTERVAL` below the 15-minute floor is rejected at startup; `0` runs a single check at startup with no recurring poll.
 
 Any environment variable prefixed `RENOVATE_*` on the operator process is passed through 1:1 to spawned Renovate containers.
 
@@ -238,7 +242,26 @@ The operator includes a **rapid-fail circuit breaker** that protects against cas
 - `GET /api/v1/breaker/state` — current breaker snapshot (state, per-project backoffs, replay queue depth)
 - `POST /api/v1/breaker/reset` — full reset: closes breaker, clears all backoffs, drains replay queue
 - `POST /api/v1/breaker/bypass/{org/repo}` — single-shot manual override for one project
+- `GET /api/v1/image-status` — runner image freshness (see [API Endpoints](#api-endpoints) below)
 - `GET /metrics` — Prometheus text exposition format
+
+### Prometheus Metrics (Image Freshness)
+
+| Metric | Labels | Description |
+| --- | --- | --- |
+| `renovate_operator_supervise_ticks_total` | `loop` | Total ticks executed by each supervised loop |
+| `renovate_operator_supervise_errors_total` | `loop`, `kind` | Per-loop error count by classification (network/context/parse/auth/other) |
+| `renovate_operator_image_update_available` | `ref` | Gauge: 1 when an image update is available, 0 otherwise |
+
+### UI header image indicator
+
+The UI header renders the configured runner image below the version line. Its colour encodes poller state:
+
+- **Grey** — poller disabled, or up to date with no error.
+- **Amber** (`update: <tag>`) — a newer image is available (`updateAvailable`).
+- **Yellow with ⚠** — the last registry poll failed (`lastError` set). The warning takes precedence over the amber update hint when both apply.
+
+Hovering the indicator reveals the full ref, digest, latest tag, last-checked timestamp, and any last error.
 
 ### Webhook Behaviour When Breaker Is Open
 
@@ -261,6 +284,35 @@ When the breaker is open, webhooks return **202 Accepted** and their events are 
 | `POST` | `/api/v1/executionOptions`             | Update debug mode                   |
 | `POST` | `/webhook/v1/forgejo?job=X`            | Forgejo webhook receiver            |
 | `POST` | `/webhook/v1/schedule?project=X&job=Y` | Manual schedule trigger             |
+| `GET`  | `/api/v1/image-status`                 | Runner image freshness status (JSON)|
+
+### `GET /api/v1/image-status`
+
+Returns a JSON object describing the configured Renovate runner image and whether a newer version is available in the registry. The response always sets `Cache-Control: no-store` and is auth-protected like other `/api/v1` routes.
+
+**Response fields:**
+
+| Field            | Type      | Description                                                                 |
+| ---------------- | --------- | --------------------------------------------------------------------------- |
+| `enabled`        | `boolean` | Whether the update-check poller is active                                   |
+| `ready`          | `boolean` | True once at least one observation has completed (or poller is disabled)     |
+| `configuredRef`  | `string`  | The raw `ROP_IMAGE` value                                                   |
+| `registry`       | `string`  | Parsed registry hostname (e.g. `index.docker.io`)                           |
+| `repository`     | `string`  | Parsed repository path (e.g. `library/renovate`)                            |
+| `tag`            | `string`  | Parsed tag (e.g. `latest`, `39.245.0`)                                      |
+| `digest`         | `string`  | Remote manifest digest from last poll                                        |
+| `localDigest`    | `string`  | Digest of the locally-pulled image                                          |
+| `latestTag`      | `string`  | Newest semver tag found (only when configured tag is semver)                 |
+| `latestDigest`   | `string`  | Digest of the latest semver tag                                             |
+| `updateAvailable`| `boolean` | True if remote differs from local OR a newer semver tag exists              |
+| `lastChecked`    | `string`  | ISO 8601 timestamp of last poll                                             |
+| `lastError`      | `string`  | Last poll error message (empty on success)                                  |
+
+**Observable shapes:**
+
+1. **Disabled** (`ROP_CHECK_UPDATE_RUNNER_IMAGE=false`): `{"enabled":false,"ready":true, ...parse-time fields}`
+2. **Enabled, first tick pending**: `{"enabled":true,"ready":false, ...parse-time fields}`
+3. **Ready (full)**: all fields populated after at least one successful poll.
 
 ## Architecture
 
