@@ -2,6 +2,53 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.8.0](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/compare/4859d3419cdec3de783a1d78060a2bd08ffbfb45..v0.8.0) - 2026-09-03
+#### 
+- show runtime image and update indicator in header - ([b6c2dad](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/b6c2dad10a93085bf82a322929e0877c4916bf8e)) - Oluf Lorenzen
+#### Features
+- (**config**) image update env vars and validation floor - ([43ef847](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/43ef8472b553a60651d3a1a6c7cc7b85eb629dd5)) - Oluf Lorenzen
+- (**config**) add env vars for resilience and metrics - ([fdf9785](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/fdf9785b5c71240df4e3629e5b99b075c86e3577)) - Oluf Lorenzen
+- (**executor**) background image refresher and local digest - ([13cb8fc](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/13cb8fcfb36d29c4a0a6aa4dd7a27444a640425c)) - Oluf Lorenzen
+- (**executor**) mount containerbase cache as a second persistent volume - ([6cfb20e](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/6cfb20e6abd3e13e4421cc757ec76eceb22f0478)) - Oluf Lorenzen
+- (**executor**) report outcome/duration to resilience and metrics - ([f696676](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/f696676c7fe5eb2250105d373b37c4e56ca27919)) - Oluf Lorenzen
+- (**imageupdate**) runner image freshness poller and registry client - ([d30ca35](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/d30ca35ae1ca6bd1236100b55ff9c32151a9efb3)) - Oluf Lorenzen
+- (**main**) wire image refresher, update poller, and run(exitFn) seam - ([07fbac0](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/07fbac0ee9fa50e03eca7a943ee55bc27077d2b5)) - Oluf Lorenzen
+- (**metrics**) register and wire supervise + image-update metrics - ([c2da499](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/c2da499e2d66d49f6659268039834109cc078080)) - Oluf Lorenzen
+- (**metrics**) add metrics package with tunable project-label cardinality - ([e05b86f](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/e05b86f09b351a0155831dc499c4526e0e229958)) - Oluf Lorenzen
+- (**resilience**) add manual bypass, replay queue, and snapshot - ([ecf76fc](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/ecf76fc51eea5fbf39f0073875bf069252d22da9)) - Oluf Lorenzen
+- (**resilience**) add rapid-fail breaker - ([a3a5ca3](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/a3a5ca31ec7bef8dc9fc821f3488da0a3179fcbd)) - Oluf Lorenzen
+- (**resilience**) add per-project backoff - ([b8e8f89](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/b8e8f89b758695fe4d2cc51bed638313fb1fc12a)) - Oluf Lorenzen
+- (**resilience**) add resilience package skeleton - ([78a6af8](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/78a6af8133fe335168fbb2631d1b570d5931c460)) - Oluf Lorenzen
+- (**scheduler**) gate dispatch via resilience.AllowDispatch - ([390d87f](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/390d87f42f7fb4aaf130f85e09e8c97f18a6a036)) - Oluf Lorenzen
+- (**server**) /api/v1/image-status endpoint and poller injection - ([a491d63](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/a491d63aba23f1dd00a24bdf77ef8650f483bcdb)) - Oluf Lorenzen
+- (**server**) add /api/v1/breaker/{state,reset,bypass} + /metrics endpoint - ([2035e0e](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/2035e0eb7638e730ea88b523d888067b45fd1828)) - Oluf Lorenzen
+- (**supervise**) supervised loop primitives with fatal-on-exit contract - ([2a14c98](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/2a14c982556171f11f11c0f4affd66dae2f6deca)) - Oluf Lorenzen
+- (**ui**) add breaker banner and reset button - ([2feb0b1](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/2feb0b1dc5a63e18cdf3a7dd45fab239eb8a3b4f)) - Oluf Lorenzen
+- (**webhook**) gate on breaker, replay on reset; wire cmd/main.go - ([f03017f](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/f03017f85c6a4104d1cfb8f1d8fdf2ac7da4c8ab)) - Oluf Lorenzen
+#### Bug Fixes
+- (**deps**) update dependency react-dom to v19.2.8 - ([7b016dc](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/7b016dcfb630820e6e7ee1d79e21969fb75abd25)) - renovate-forgejo
+- (**deps**) update dependency react to v19.2.8 - ([1d2297a](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/1d2297aa8843aaf296702908aefd009b79dff868)) - renovate-forgejo
+- (**executor**) run renovate containers as 12021:0 for GID-0 cache access - ([d38226b](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/d38226b361c63ce4a16d00d929436b14aa76ad7e)) - Oluf Lorenzen, pi-agent
+- (**supervise**) per-tick body returning nil is not fatal - ([1f75e86](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/1f75e869854e2fba960a4876af0536ac0d4e5eae)) - Oluf Lorenzen
+- (**ui**) sync webhook checkbox with loaded job state - ([29f573c](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/29f573c580e8dfbfbc4a457ea95e38408d6ce3b1)) - Oluf Lorenzen
+- resolve golangci-lint issues in tests and metrics - ([e629cfb](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/e629cfbd19c454704057bd5007e94c671c98660c)) - Oluf Lorenzen
+#### Documentation
+- (**readme**) add cache-volumes runbook subsection - ([618afbf](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/618afbf4a039d963d5e391371e5bac9e57a73472)) - Oluf Lorenzen
+- document image update checker and package guidance - ([7f1f822](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/7f1f8229b470cdc41d4feee744ca88c9625fa6af)) - Oluf Lorenzen
+- document ROP_CONTAINERBASE_CACHE_VOLUME env var - ([5c5a262](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/5c5a2624a10a9a7db0af933874a61842ff6c961f)) - Oluf Lorenzen
+- add resilience/metrics README, runbook, spec, plan, and smoke script - ([7519d51](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/7519d5165a17f2fee4292dde744b6462aeed045d)) - Oluf Lorenzen
+#### Tests
+- (**executor**) cover ContainerbaseCacheVolume default and override - ([8215dcc](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/8215dccde74343d3d34f21ebfacd2e9b56e338fb)) - Oluf Lorenzen
+#### Build system
+- (**deps**) update https://code.forgejo.org/actions/checkout action to v7.0.1 - ([4859d34](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/4859d3419cdec3de783a1d78060a2bd08ffbfb45)) - Renovate Bot
+#### Refactoring
+- (**executor**) extract hostBinds() helper for container bind mounts - ([631782a](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/631782ac388625e72ed7af723cc8c2cfe0d022ae)) - Oluf Lorenzen
+#### Miscellaneous Chores
+- stop tracking gitignored unipi/ artifacts - ([656327a](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/656327a86f228237db54e61cb474f8086f010cdd)) - Oluf Lorenzen
+- pi-lens autoformat + backfill T9 SHA in plan - ([022e563](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/022e56397f55e31ea133b3f98756583b78fc92eb)) - Oluf Lorenzen
+
+- - -
+
 ## [v0.7.0](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/compare/502737ecf2b786c44e008b04fbd134cbb3173671..v0.7.0) - 2026-07-20
 #### Features
 - (**server**) add live log SSE endpoint with WriteTimeout bypass - ([d7c5c18](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/d7c5c18931697fc42ce09fdf330875027acf6f87)) - Oluf Lorenzen
