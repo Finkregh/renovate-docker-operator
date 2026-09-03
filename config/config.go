@@ -75,6 +75,10 @@ type Config struct {
 	// Image Cache
 	ImageCacheTTL time.Duration // ROP_IMAGE_CACHE_TTL (default: 24h, 0 disables)
 
+	// Image update poller
+	CheckUpdateRunnerImage  bool          // ROP_CHECK_UPDATE_RUNNER_IMAGE (default: true)
+	ImageUpdatePollInterval time.Duration // ROP_IMAGE_UPDATE_POLL_INTERVAL (default: value of ImageCacheTTL)
+
 	// Resilience
 	RapidFailThreshold int           // ROP_RAPID_FAIL_THRESHOLD (default: 10)
 	RapidFailWindow    time.Duration // ROP_RAPID_FAIL_WINDOW (default: 5m)
@@ -147,6 +151,13 @@ func Load() (*Config, error) {
 	// Parse image cache TTL
 	cfg.ImageCacheTTL = envOrDefaultDuration("ROP_IMAGE_CACHE_TTL", 24*time.Hour)
 
+	// Parse image update poller settings.
+	// ROP_IMAGE_UPDATE_POLL_INTERVAL defaults to the value of ImageCacheTTL
+	// so operators who tune the executor's re-pull cadence get a matching
+	// poll cadence for free (documented interaction).
+	cfg.CheckUpdateRunnerImage = envOrDefaultBool("ROP_CHECK_UPDATE_RUNNER_IMAGE", true)
+	cfg.ImageUpdatePollInterval = envOrDefaultDuration("ROP_IMAGE_UPDATE_POLL_INTERVAL", cfg.ImageCacheTTL)
+
 	// Parse resilience settings
 	cfg.RapidFailThreshold = envOrDefaultInt("ROP_RAPID_FAIL_THRESHOLD", 10)
 	cfg.RapidFailWindow = envOrDefaultDuration("ROP_RAPID_FAIL_WINDOW", 5*time.Minute)
@@ -195,6 +206,9 @@ func Load() (*Config, error) {
 		"ROP_SKIP_FORKS":                 strconv.FormatBool(cfg.SkipForks),
 		"ROP_LOG_LEVEL":                  cfg.LogLevel,
 		"ROP_MAX_REQUEST_BODY":           strconv.FormatInt(cfg.MaxRequestBody, 10),
+		"ROP_IMAGE_CACHE_TTL":            cfg.ImageCacheTTL.String(),
+		"ROP_CHECK_UPDATE_RUNNER_IMAGE":  strconv.FormatBool(cfg.CheckUpdateRunnerImage),
+		"ROP_IMAGE_UPDATE_POLL_INTERVAL": cfg.ImageUpdatePollInterval.String(),
 		"ROP_RAPID_FAIL_THRESHOLD":       strconv.Itoa(cfg.RapidFailThreshold),
 		"ROP_RAPID_FAIL_WINDOW":          cfg.RapidFailWindow.String(),
 		"ROP_FAILURE_MIN_RUNTIME":        cfg.FailureMinRuntime.String(),
@@ -261,4 +275,44 @@ func envOrDefaultBool(key string, defaultValue bool) bool {
 		return defaultValue
 	}
 	return b
+}
+
+// MinImageUpdatePollInterval is the floor for ROP_IMAGE_UPDATE_POLL_INTERVAL
+// enforced by Validate when the poller is enabled. 0 remains valid and
+// means "run once at startup only, no ticker." See plan
+// 2026-08-04-renovate-image-freshness-and-update-notification-plan.md §D.
+const MinImageUpdatePollInterval = 15 * time.Minute
+
+// Validate performs boot-time validation of a loaded Config that goes
+// beyond individual env-var parsing. Called from cmd/main.go
+// immediately after Load(); non-nil error is fatal.
+//
+// parseRef is the reference parser used when the poller is enabled
+// (typically imageupdate.Parse). Passed as a function so this package
+// does not import internal/imageupdate directly. Nil is accepted and
+// skips the ROP_IMAGE parseability check — useful for tests that
+// don't want to depend on the imageupdate package.
+func Validate(cfg *Config, parseRef func(string) error) error {
+	if cfg == nil {
+		return fmt.Errorf("nil config")
+	}
+	if !cfg.CheckUpdateRunnerImage {
+		return nil // poller disabled: nothing to validate
+	}
+	if parseRef != nil {
+		if err := parseRef(cfg.RenovateImage); err != nil {
+			return fmt.Errorf("invalid ROP_IMAGE %q: %w", cfg.RenovateImage, err)
+		}
+	}
+	// 0 is valid ("run once at startup, no ticker"). Any positive value
+	// below the floor is a fat-finger config.
+	if cfg.ImageUpdatePollInterval > 0 && cfg.ImageUpdatePollInterval < MinImageUpdatePollInterval {
+		return fmt.Errorf(
+			"ROP_IMAGE_UPDATE_POLL_INTERVAL=%s is below the %s minimum floor; "+
+				"raise it or disable the poller with ROP_CHECK_UPDATE_RUNNER_IMAGE=false",
+			cfg.ImageUpdatePollInterval,
+			MinImageUpdatePollInterval,
+		)
+	}
+	return nil
 }
