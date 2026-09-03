@@ -27,6 +27,7 @@ import (
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/parser"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/resilience"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/statestore"
+	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/supervise"
 )
 
 const (
@@ -550,6 +551,7 @@ func (e *DockerExecutor) runDiscoveryContainer(ctx context.Context, job *api.Ren
 
 // dispatchLoop periodically checks for scheduled jobs and dispatches them.
 func (e *DockerExecutor) dispatchLoop(ctx context.Context, dispatch <-chan struct{}) {
+	defer supervise.Guard(ctx, e.logger, "dispatchLoop")()
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
@@ -697,6 +699,7 @@ func (e *DockerExecutor) dispatchProject(ctx context.Context, job *api.RenovateJ
 
 // listenEvents subscribes to Docker container events and handles die events.
 func (e *DockerExecutor) listenEvents(ctx context.Context, triggerDispatch func()) {
+	defer supervise.Guard(ctx, e.logger, "listenEvents")()
 	f := filters.NewArgs()
 	f.Add("type", string(events.ContainerEventType))
 	f.Add("event", "die")
@@ -887,6 +890,7 @@ func (e *DockerExecutor) handleContainerExit(ctx context.Context, containerID st
 
 // reconcileLoop periodically checks for orphaned containers.
 func (e *DockerExecutor) reconcileLoop(ctx context.Context) {
+	defer supervise.Guard(ctx, e.logger, "reconcileLoop")()
 	ticker := time.NewTicker(60 * time.Second)
 	defer ticker.Stop()
 
@@ -980,49 +984,33 @@ func (e *DockerExecutor) reconcileOrphans(ctx context.Context) error {
 }
 
 // pullImage pulls the configured image based on the image pull policy.
+//
+// The dispatch hot path uses this as a safety net for "image missing
+// locally" (fresh start, image manually removed). The background
+// RefreshImage ticker (driven by supervise.Loop from cmd/main.go) keeps
+// the local image current on the ROP_IMAGE_CACHE_TTL cadence, so the
+// ImageInspect short-circuit almost always wins and no per-dispatch TTL
+// check is needed here. See internal/executor/refresher.go.
 func (e *DockerExecutor) pullImage(ctx context.Context) error {
 	switch e.imagePullPolicy {
 	case "never":
 		return nil
-	case "if-not-present":
-		// Check image cache first (if TTL > 0)
-		if e.imageCacheTTL > 0 {
-			e.mu.Lock()
-			if lastCheck, ok := e.imageCache[e.image]; ok && time.Since(lastCheck) < e.imageCacheTTL {
-				e.mu.Unlock()
-				return nil
-			}
-			e.mu.Unlock()
-		}
-		// Check if image exists locally
-		_, err := e.docker.ImageInspect(ctx, e.image)
-		if err == nil {
-			// Image present — update cache
+	case "if-not-present", "":
+		// Check if image exists locally. If it does, we're done — the
+		// background refresher is responsible for keeping it current.
+		if _, err := e.docker.ImageInspect(ctx, e.image); err == nil {
 			if e.imageCacheTTL > 0 {
-				e.mu.Lock()
-				e.imageCache[e.image] = time.Now()
-				e.mu.Unlock()
+				e.markImageChecked(e.image, time.Now())
 			}
-			return nil // Already present
+			return nil
 		}
 	case "always":
-		// Always pull
+		// Always pull.
 	default:
-		// Default to if-not-present behavior
-		if e.imageCacheTTL > 0 {
-			e.mu.Lock()
-			if lastCheck, ok := e.imageCache[e.image]; ok && time.Since(lastCheck) < e.imageCacheTTL {
-				e.mu.Unlock()
-				return nil
-			}
-			e.mu.Unlock()
-		}
-		_, err := e.docker.ImageInspect(ctx, e.image)
-		if err == nil {
+		// Unknown policy — behave like if-not-present.
+		if _, err := e.docker.ImageInspect(ctx, e.image); err == nil {
 			if e.imageCacheTTL > 0 {
-				e.mu.Lock()
-				e.imageCache[e.image] = time.Now()
-				e.mu.Unlock()
+				e.markImageChecked(e.image, time.Now())
 			}
 			return nil
 		}
@@ -1039,9 +1027,7 @@ func (e *DockerExecutor) pullImage(ctx context.Context) error {
 
 	// Update cache after successful pull
 	if e.imageCacheTTL > 0 {
-		e.mu.Lock()
-		e.imageCache[e.image] = time.Now()
-		e.mu.Unlock()
+		e.markImageChecked(e.image, time.Now())
 	}
 	return nil
 }
