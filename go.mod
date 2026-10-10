@@ -1,6 +1,6 @@
 module git.h.oluflorenzen.de/finkregh/renovate-docker-operator
 
-go 1.26.5
+go 1.26.9
 
 require (
 	github.com/docker/docker v28.5.2+incompatible
