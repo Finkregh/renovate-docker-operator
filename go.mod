@@ -6,7 +6,7 @@ require (
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/gorilla/mux v1.8.1
 	github.com/prometheus/client_golang v1.24.1
-	github.com/prometheus/client_model v0.6.2
+	github.com/prometheus/client_model v0.6.3
 	github.com/robfig/cron/v3 v3.0.1
 	modernc.org/sqlite v1.54.0
 )
@@ -48,7 +48,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.44.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
+	google.golang.org/protobuf v1.36.12 // indirect
 	gotest.tools/v3 v3.5.2 // indirect
 	modernc.org/libc v1.74.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
