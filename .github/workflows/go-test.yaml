@@ -21,7 +21,7 @@ jobs:
           cache: true
 
       - name: Install just
-        uses: https://codeberg.org/FelixSchwarz/setup-just@v4.0.0-codeberg
+        uses: https://codeberg.org/FelixSchwarz/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4.0.0
 
       - name: Download dependencies
         run: go mod download

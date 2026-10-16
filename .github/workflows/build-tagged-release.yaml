@@ -27,7 +27,7 @@ jobs:
           cache: true
 
       - name: Install just
-        uses: https://codeberg.org/FelixSchwarz/setup-just@v4.0.0-codeberg
+        uses: https://codeberg.org/FelixSchwarz/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4.0.0
 
       - name: Install jq
         uses: https://git.h.oluflorenzen.de/mirrors/codeberg.PurpleBooth.common-pipelines/actions/install-jq@613f8b1be709aae90bc082b1ea389887431b9ae3 # 0.31.3
