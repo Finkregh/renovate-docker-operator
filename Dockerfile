@@ -19,7 +19,7 @@ ARG VERSION=dev
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w -X main.Version=${VERSION}" -o /renovate-docker-operator ./cmd/
 
 # JS dependency download stage
-FROM node:24-alpine AS js-downloader
+FROM node:26-alpine AS js-downloader
 WORKDIR /workspace
 RUN apk add --no-cache curl
 RUN mkdir -p static/js && \

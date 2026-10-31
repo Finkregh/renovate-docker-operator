@@ -25,7 +25,7 @@ jobs:
     env:
       DOCKER_HOST: tcp://docker_dind:2375
     container:
-      image: node:24-bookworm@sha256:8530f76a96d88820d288761f022e318970dda93d01536919fbc16076b7983e63
+      image: node:26-bookworm@sha256:fa52d1669505e29b58c042875b1d65c229e0787a3610fd52869b22b68e480853
       options: >-
         --privileged
       env:
