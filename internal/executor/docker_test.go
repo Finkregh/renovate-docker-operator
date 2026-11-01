@@ -536,7 +536,7 @@ func TestDiscoveryCommandPreservesRenovateExitStatus(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			cmd := exec.Command("/bin/sh", "-c", discoveryCommand)
+			cmd := exec.CommandContext(t.Context(), "/bin/sh", "-c", discoveryCommand)
 			cmd.Env = append(os.Environ(), "RENOVATE_BASE_DIR="+baseDir, "PATH="+dir+":"+os.Getenv("PATH"))
 			output, err := cmd.Output()
 			if tc.wantCode == 0 {

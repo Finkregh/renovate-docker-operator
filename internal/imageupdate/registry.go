@@ -120,7 +120,7 @@ func (c *Client) HeadManifest(ctx context.Context, ref Reference) (string, error
 		return digest, nil
 	}
 
-	var chal *bearerChallenge
+	var chal *bearerChallengeError
 	if errors.As(err, &chal) && c.auth != nil {
 		token, tokErr := c.auth.AnonymousBearer(ctx, chal.challenge)
 		if tokErr != nil {
@@ -163,7 +163,7 @@ func (c *Client) doHeadManifest(ctx context.Context, url, token string) (string,
 		if !strings.HasPrefix(strings.ToLower(challenge), "bearer ") {
 			return "", classifyErr("auth", fmt.Errorf("HEAD %s: 401 without Bearer challenge (header=%q)", url, challenge))
 		}
-		return "", &bearerChallenge{challenge: challenge}
+		return "", &bearerChallengeError{challenge: challenge}
 	case http.StatusNotFound:
 		return "", classifyErr("not_found", fmt.Errorf("HEAD %s: 404 (image or tag missing)", url))
 	default:
@@ -190,7 +190,7 @@ func (c *Client) ListTags(ctx context.Context, ref Reference) ([]string, error) 
 		if err != nil {
 			// If we got a challenge, resolve token once and retry the
 			// same URL.
-			var chal *bearerChallenge
+			var chal *bearerChallengeError
 			if errors.As(err, &chal) && c.auth != nil && token == "" {
 				tk, tokErr := c.auth.AnonymousBearer(ctx, chal.challenge)
 				if tokErr != nil {
@@ -242,7 +242,7 @@ func (c *Client) getTagsPage(ctx context.Context, url, token string) ([]string, 
 		if !strings.HasPrefix(strings.ToLower(challenge), "bearer ") {
 			return nil, "", classifyErr("auth", fmt.Errorf("GET %s: 401 without Bearer challenge", url))
 		}
-		return nil, "", &bearerChallenge{challenge: challenge}
+		return nil, "", &bearerChallengeError{challenge: challenge}
 	case http.StatusNotFound:
 		return nil, "", classifyErr("not_found", fmt.Errorf("GET %s: 404", url))
 	default:
@@ -285,14 +285,14 @@ func parseNextLink(link, base string) string {
 	return ""
 }
 
-// bearerChallenge is an internal sentinel error signalling that the
+// bearerChallengeError is an internal sentinel error signalling that the
 // caller should perform the bearer-token dance. It carries the raw
 // WWW-Authenticate header so auth.go can parse realm/service/scope.
-type bearerChallenge struct {
+type bearerChallengeError struct {
 	challenge string
 }
 
-func (b *bearerChallenge) Error() string {
+func (b *bearerChallengeError) Error() string {
 	return "registry requires bearer token: " + b.challenge
 }
 

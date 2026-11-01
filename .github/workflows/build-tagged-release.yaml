@@ -25,9 +25,12 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: go.sum
 
       - name: Install just
         uses: https://codeberg.org/FelixSchwarz/setup-just@v4.0.0-codeberg
+        with:
+          just-version: "1.59.0"
 
       - name: Install jq
         uses: https://git.h.oluflorenzen.de/mirrors/codeberg.PurpleBooth.common-pipelines/actions/install-jq@613f8b1be709aae90bc082b1ea389887431b9ae3 # 0.31.3

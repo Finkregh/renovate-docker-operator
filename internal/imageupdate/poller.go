@@ -57,6 +57,7 @@ type HeadManifester interface {
 	HeadManifest(ctx context.Context, ref Reference) (string, error)
 }
 
+// TagLister lists the tags associated with a repository reference.
 type TagLister interface {
 	ListTags(ctx context.Context, ref Reference) ([]string, error)
 }
@@ -245,7 +246,7 @@ func (p *Poller) recordTotalFailure(err error) error {
 
 	p.mu.Lock()
 	// Preserve prior state; overwrite only LastError / LastChecked.
-	p.state.LastError = truncateError(msg, 120)
+	p.state.LastError = truncateError(msg)
 	p.state.LastChecked = time.Now()
 	// A total-failure tick does NOT flip Ready to true. Ready flips
 	// only when we observe *something* concrete about the remote (per
@@ -268,7 +269,7 @@ func (p *Poller) recordPartialSuccess(next Status, err error) error {
 
 	next.Ready = true
 	next.LastChecked = time.Now()
-	next.LastError = truncateError(classified.Error(), 120)
+	next.LastError = truncateError(classified.Error())
 
 	// Preserve stale branches from prior state that we didn't touch.
 	prior := p.Snapshot()
@@ -291,9 +292,11 @@ func (p *Poller) recordPartialSuccess(next Status, err error) error {
 	return classified
 }
 
+const maxErrorRunes = 120
+
 // truncateError shortens an error string for the UI tooltip. Format:
 // keep the first line, cap at max runes, append "…" on truncation.
-func truncateError(msg string, max int) string {
+func truncateError(msg string) string {
 	// First-line only.
 	for i := 0; i < len(msg); i++ {
 		if msg[i] == '\n' {
@@ -301,8 +304,8 @@ func truncateError(msg string, max int) string {
 			break
 		}
 	}
-	if len(msg) <= max {
+	if len(msg) <= maxErrorRunes {
 		return msg
 	}
-	return msg[:max] + "…"
+	return msg[:maxErrorRunes] + "…"
 }

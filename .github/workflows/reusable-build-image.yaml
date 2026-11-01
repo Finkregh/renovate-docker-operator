@@ -98,6 +98,7 @@ jobs:
         env:
           TAGS: ${{ steps.tags.outputs.tags }}
           VERSION: ${{ steps.version.outputs.VERSION }}
+          CACHE_IMAGE: ${{ steps.server_domain.outputs.server_domain }}/${{ github.repository }}:build-cache
         run: |
           build_tags=()
           while IFS= read -r tag; do
@@ -105,7 +106,11 @@ jobs:
             build_tags+=(--tag "$tag")
           done <<< "$TAGS"
 
-          podman build --storage-driver=vfs "${build_tags[@]}" --build-arg "VERSION=$VERSION" .
+          podman build --storage-driver=vfs --layers \
+            --cache-from "$CACHE_IMAGE" \
+            --cache-to "$CACHE_IMAGE" \
+            "${build_tags[@]}" \
+            --build-arg "VERSION=$VERSION" .
           while IFS= read -r tag; do
             [ -z "$tag" ] && continue
             podman push --storage-driver=vfs "$tag"

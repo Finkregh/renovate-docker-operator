@@ -272,7 +272,7 @@ func TestPoller_TruncateError(t *testing.T) {
 	for i := 0; i < 500; i++ {
 		long += "x"
 	}
-	got := truncateError(long, 120)
+	got := truncateError(long)
 	// 120 + one "…" rune ("…" is 3 UTF-8 bytes; len returns bytes)
 	if len(got) != 120+len("…") {
 		t.Errorf("len = %d, want %d", len(got), 120+len("…"))
@@ -282,7 +282,7 @@ func TestPoller_TruncateError(t *testing.T) {
 	}
 
 	multiline := "first line\nsecond line"
-	got2 := truncateError(multiline, 120)
+	got2 := truncateError(multiline)
 	if got2 != "first line" {
 		t.Errorf("got %q, want %q", got2, "first line")
 	}
