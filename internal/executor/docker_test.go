@@ -1,7 +1,11 @@
 package executor
 
 import (
+	"errors"
 	"log/slog"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -485,6 +489,71 @@ func TestNew_CustomConfig(t *testing.T) {
 
 	// Cleanup
 	_ = exec.docker.Close()
+}
+
+func TestChildHostConfigUsesReadablePodmanLogs(t *testing.T) {
+	e := newTestExecutor(t)
+	e.cacheVolume = "renovate-cache"
+	e.containerbaseCacheVolume = "containerbase-cache"
+	e.network = "renovate-network"
+
+	hostCfg := e.childHostConfig()
+	if hostCfg.LogConfig.Type != "k8s-file" {
+		t.Errorf("LogConfig.Type = %q, want k8s-file", hostCfg.LogConfig.Type)
+	}
+	if hostCfg.NetworkMode != "renovate-network" {
+		t.Errorf("NetworkMode = %q, want renovate-network", hostCfg.NetworkMode)
+	}
+}
+
+func TestDiscoveryCommandPreservesRenovateExitStatus(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		renovate string
+		wantOut  string
+		wantCode int
+	}{
+		{
+			name:     "success emits discovered repositories",
+			renovate: `printf '["org/repo"]' > "$RENOVATE_BASE_DIR/repos.json"`,
+			wantOut:  `["org/repo"]`,
+		},
+		{
+			name:     "failure emits diagnostics and retains exit status",
+			renovate: `printf 'discovery failed' >&2; exit 42`,
+			wantOut:  "discovery failed",
+			wantCode: 42,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			baseDir := filepath.Join(dir, "base")
+			if err := os.Mkdir(baseDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			fakeRenovate := filepath.Join(dir, "renovate")
+			if err := os.WriteFile(fakeRenovate, []byte("#!/bin/sh\n"+tc.renovate+"\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+
+			cmd := exec.Command("/bin/sh", "-c", discoveryCommand)
+			cmd.Env = append(os.Environ(), "RENOVATE_BASE_DIR="+baseDir, "PATH="+dir+":"+os.Getenv("PATH"))
+			output, err := cmd.Output()
+			if tc.wantCode == 0 {
+				if err != nil {
+					t.Fatalf("command failed: %v", err)
+				}
+			} else {
+				var exitErr *exec.ExitError
+				if !errors.As(err, &exitErr) || exitErr.ExitCode() != tc.wantCode {
+					t.Fatalf("exit error = %v, want exit code %d", err, tc.wantCode)
+				}
+			}
+			if string(output) != tc.wantOut {
+				t.Errorf("output = %q, want %q", output, tc.wantOut)
+			}
+		})
+	}
 }
 
 func TestHostBinds(t *testing.T) {

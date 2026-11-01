@@ -74,7 +74,7 @@ docker compose logs -f
 open http://localhost:8081
 ```
 
-See [`docker-compose.yml`](docker-compose.yml) for all available options and [`.env.example`](.env.example) for the full variable reference.
+See [`docker-compose.yml`](docker-compose.yml) for all available options and [`.env.example`](.env.example) for the full variable reference. For native Nix/NixOS deployment, see [`docs/nix.md`](docs/nix.md).
 
 ## Configuration
 
