@@ -20,6 +20,7 @@ let
     types
     ;
   renderedEnvironment = lib.mapAttrsToList (name: value: "${name}=${value}") cfg.environment;
+  isRootless = cfg.rootlessUser != null;
 in
 {
   options.services.renovate-operator = {
@@ -50,8 +51,23 @@ in
 
     dataDir = mkOption {
       type = types.str;
-      default = "/var/lib/renovate-operator";
-      description = "Directory used for SQLite state.";
+      default =
+        if cfg.rootlessUser == null then
+          "/var/lib/renovate-operator"
+        else
+          "%h/.local/share/renovate-operator";
+      description = "Directory used for SQLite state. The rootless user-manager default is relative to the selected user's home directory.";
+    };
+
+    rootlessUser = mkOption {
+      type = types.nullOr types.str;
+      default = null;
+      example = "renovate";
+      description = ''
+        Existing non-root user whose systemd user manager runs the operator.
+        Setting this option enables rootless user-manager mode instead of the
+        default rootful system service.
+      '';
     };
 
     user = mkOption {
@@ -75,45 +91,86 @@ in
 
     dockerHost = mkOption {
       type = types.str;
-      default = "unix:///run/podman/podman.sock";
-      description = "DOCKER_HOST endpoint for the Podman or Docker API.";
+      default =
+        if cfg.rootlessUser == null then
+          "unix:///run/podman/podman.sock"
+        else
+          "unix://%t/podman/podman.sock";
+      description = ''
+        DOCKER_HOST endpoint for the Podman or Docker API. Rootless
+        user-manager mode defaults to the selected user's runtime directory.
+      '';
     };
   };
 
   config = mkIf cfg.enable {
-    users.users = lib.optionalAttrs (cfg.user == "renovate-operator") {
+    assertions = [
+      {
+        assertion = !isRootless || cfg.rootlessUser != "root";
+        message = "services.renovate-operator.rootlessUser must name a non-root user.";
+      }
+    ];
+
+    users.users = lib.optionalAttrs (!isRootless && cfg.user == "renovate-operator") {
       renovate-operator = {
         isSystemUser = true;
         group = cfg.group;
       };
     };
-    users.groups = lib.optionalAttrs (cfg.group == "renovate-operator") {
+    users.groups = lib.optionalAttrs (!isRootless && cfg.group == "renovate-operator") {
       renovate-operator = { };
     };
 
-    systemd.services.renovate-operator = {
-      description = "Renovate Operator";
-      wantedBy = [ "multi-user.target" ];
-      after = [ "network-online.target" ];
-      wants = [ "network-online.target" ];
-      serviceConfig = {
-        ExecStart = "${cfg.package}/bin/renovate-operator";
-        User = cfg.user;
-        Group = cfg.group;
-        SupplementaryGroups = cfg.supplementaryGroups;
-        WorkingDirectory = "${cfg.package}/share/renovate-operator";
-        StateDirectory = lib.removePrefix "/var/lib/" cfg.dataDir;
-        Restart = "on-failure";
-        RestartSec = "5s";
+    systemd.services = lib.optionalAttrs (!isRootless) {
+      renovate-operator = {
+        description = "Renovate Operator";
+        wantedBy = [ "multi-user.target" ];
+        after = [ "network-online.target" ];
+        wants = [ "network-online.target" ];
+        serviceConfig = {
+          ExecStart = "${cfg.package}/bin/renovate-operator";
+          User = cfg.user;
+          Group = cfg.group;
+          SupplementaryGroups = cfg.supplementaryGroups;
+          WorkingDirectory = "${cfg.package}/share/renovate-operator";
+          StateDirectory = lib.removePrefix "/var/lib/" cfg.dataDir;
+          Restart = "on-failure";
+          RestartSec = "5s";
+        }
+        // lib.optionalAttrs (cfg.environmentFile != null) {
+          EnvironmentFile = cfg.environmentFile;
+        };
+        environment = [
+          "DOCKER_HOST=${cfg.dockerHost}"
+          "ROP_SQLITE_PATH=${cfg.dataDir}/renovate.db"
+        ]
+        ++ renderedEnvironment;
       };
-      environment = [
-        "DOCKER_HOST=${cfg.dockerHost}"
-        "ROP_SQLITE_PATH=${cfg.dataDir}/renovate.db"
-      ]
-      ++ renderedEnvironment;
-    }
-    // lib.optionalAttrs (cfg.environmentFile != null) {
-      serviceConfig.EnvironmentFile = cfg.environmentFile;
+    };
+
+    systemd.user.services = lib.optionalAttrs isRootless {
+      renovate-operator = {
+        description = "Renovate Operator (rootless)";
+        wantedBy = [ "default.target" ];
+        after = [ "podman.socket" ];
+        wants = [ "podman.socket" ];
+        unitConfig.ConditionUser = cfg.rootlessUser;
+        serviceConfig = {
+          ExecStartPre = [ "${pkgs.coreutils}/bin/mkdir -p ${cfg.dataDir}" ];
+          ExecStart = "${cfg.package}/bin/renovate-operator";
+          WorkingDirectory = "${cfg.package}/share/renovate-operator";
+          Restart = "on-failure";
+          RestartSec = "5s";
+        }
+        // lib.optionalAttrs (cfg.environmentFile != null) {
+          EnvironmentFile = cfg.environmentFile;
+        };
+        environment = {
+          DOCKER_HOST = cfg.dockerHost;
+          ROP_SQLITE_PATH = "${cfg.dataDir}/renovate.db";
+        }
+        // cfg.environment;
+      };
     };
   };
 }
