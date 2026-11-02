@@ -72,9 +72,33 @@ jobs:
           key: podman-apt-${{ runner.os }}-bookworm-v1
 
       - name: Install Podman
+        shell: bash
         run: |
-          apt-get update
-          apt-get install -y --no-install-recommends podman
+          set -Eeuo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+
+          diagnose_install_failure() {
+            local status=$?
+            trap - ERR
+            set +e
+            echo "::error::Podman installation failed with exit code ${status}"
+
+            echo "::group::dpkg audit"
+            dpkg --audit
+            dpkg --configure --pending --dry-run
+            dpkg-query -W -f='${db:Status-Abbrev} ${Package} ${Version}\n' \
+              podman conmon crun containernetworking-plugins
+            echo "::endgroup::"
+
+            echo "::group::recent dpkg log"
+            tail -n 200 /var/log/dpkg.log
+            echo "::endgroup::"
+            exit "${status}"
+          }
+          trap diagnose_install_failure ERR
+
+          apt-get -o Dpkg::Use-Pty=0 update
+          apt-get -o Dpkg::Use-Pty=0 install -y --no-install-recommends podman
 
       - name: Configure Podman storage
         run: |
