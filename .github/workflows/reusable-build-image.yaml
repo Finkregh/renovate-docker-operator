@@ -65,10 +65,16 @@ jobs:
           fetch-depth: ${{ inputs.fetch_tags && '0' || '1' }}
           ref: ${{ inputs.checkout_ref || github.ref }}
 
+      - name: Cache Podman APT archives
+        uses: actions/cache@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9 # v4.0.2
+        with:
+          path: /var/cache/apt/archives
+          key: podman-apt-${{ runner.os }}-bookworm-v1
+
       - name: Install Podman
         run: |
           apt-get update
-          apt-get install -y podman
+          apt-get install -y --no-install-recommends podman
 
       - name: Configure Podman storage
         run: |
