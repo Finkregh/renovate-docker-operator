@@ -1,0 +1,11 @@
+# Forgejo-specific runner labels used by this repository's workflows.
+self-hosted-runner:
+  labels:
+    - dind
+
+# Forgejo accepts fully-qualified action URLs, while actionlint only supports
+# GitHub's owner/repository action syntax.
+paths:
+  .github/workflows/**/*.yaml:
+    ignore:
+      - 'specifying action "https://'

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/image"
-	"github.com/docker/docker/client"
 )
 
 // imagePuller is the narrow subset of the Docker client used by RefreshImage.
@@ -92,7 +92,7 @@ func (e *DockerExecutor) markImageChecked(ref string, at time.Time) {
 func (e *DockerExecutor) LocalDigest(ctx context.Context) (string, error) {
 	info, err := e.docker.ImageInspect(ctx, e.image)
 	if err != nil {
-		if client.IsErrNotFound(err) {
+		if errdefs.IsNotFound(err) {
 			return "", nil
 		}
 		return "", fmt.Errorf("inspect local image %s: %w", e.image, err)

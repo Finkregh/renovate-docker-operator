@@ -38,6 +38,12 @@ const (
 
 	typeExecutor  = "executor"
 	typeDiscovery = "discovery"
+
+	// discoveryCommand preserves Renovate's exit status while emitting either the
+	// discovered repository list or the diagnostics Renovate wrote on failure.
+	// ContainerLogs therefore remains the single source for both result parsing
+	// and actionable failure reporting.
+	discoveryCommand = `BASE_DIR="${RENOVATE_BASE_DIR:-/tmp}"; if renovate --autodiscover --write-discovered-repos "$BASE_DIR/repos.json" >> "$BASE_DIR/logs.json" 2>&1; then cat "$BASE_DIR/repos.json"; else status=$?; cat "$BASE_DIR/logs.json"; exit "$status"; fi`
 )
 
 // renovateContainerUser is the uid:gid the renovate/renovate image requires.
@@ -195,6 +201,20 @@ func (e *DockerExecutor) hostBinds() []string {
 	}
 }
 
+// childHostConfig returns the common runtime settings for every Renovate child.
+// Podman's journald driver can yield an empty response through its Docker API,
+// particularly for rootless sockets. k8s-file is supported by rootful and
+// rootless Podman and makes ContainerLogs readable for discovery and normal runs.
+func (e *DockerExecutor) childHostConfig() *container.HostConfig {
+	return &container.HostConfig{
+		Binds:       e.hostBinds(),
+		NetworkMode: container.NetworkMode(e.network),
+		LogConfig: container.LogConfig{
+			Type: "k8s-file",
+		},
+	}
+}
+
 // SetProjectSource records the dispatch source for a project so that the exit
 // handler can pass it to the resilience reporter. Call this before the
 // dispatch loop picks up the project. Safe to call concurrently.
@@ -299,8 +319,6 @@ func (e *DockerExecutor) DispatchDiscovery(ctx context.Context, job *api.Renovat
 
 	envVars := e.buildEnvVars(job, true)
 
-	discoveryCmd := `BASE_DIR="${RENOVATE_BASE_DIR:-/tmp}"; renovate --autodiscover --write-discovered-repos "$BASE_DIR/repos.json" >> "$BASE_DIR/logs.json" 2>&1 && cat "$BASE_DIR/repos.json" || cat "$BASE_DIR/logs.json"`
-
 	startTime := time.Now()
 
 	labels := map[string]string{
@@ -311,16 +329,13 @@ func (e *DockerExecutor) DispatchDiscovery(ctx context.Context, job *api.Renovat
 
 	containerCfg := &container.Config{
 		Image:  e.image,
-		Cmd:    []string{"/bin/sh", "-c", discoveryCmd},
+		Cmd:    []string{"/bin/sh", "-c", discoveryCommand},
 		Env:    envVars,
 		Labels: labels,
 		User:   renovateContainerUser,
 	}
 
-	hostCfg := &container.HostConfig{
-		Binds:       e.hostBinds(),
-		NetworkMode: container.NetworkMode(e.network),
-	}
+	hostCfg := e.childHostConfig()
 
 	name := fmt.Sprintf("renovate-discovery-%s-%d", sanitizeName(job.Name), startTime.Unix())
 
@@ -454,8 +469,6 @@ func (e *DockerExecutor) runDiscoveryContainer(ctx context.Context, job *api.Ren
 
 	envVars := e.buildEnvVars(job, true)
 
-	discoveryCmd := `BASE_DIR="${RENOVATE_BASE_DIR:-/tmp}"; renovate --autodiscover --write-discovered-repos "$BASE_DIR/repos.json" >> "$BASE_DIR/logs.json" 2>&1 && cat "$BASE_DIR/repos.json" || cat "$BASE_DIR/logs.json"`
-
 	startTime := time.Now()
 
 	labels := map[string]string{
@@ -466,16 +479,13 @@ func (e *DockerExecutor) runDiscoveryContainer(ctx context.Context, job *api.Ren
 
 	containerCfg := &container.Config{
 		Image:  e.image,
-		Cmd:    []string{"/bin/sh", "-c", discoveryCmd},
+		Cmd:    []string{"/bin/sh", "-c", discoveryCommand},
 		Env:    envVars,
 		Labels: labels,
 		User:   renovateContainerUser,
 	}
 
-	hostCfg := &container.HostConfig{
-		Binds:       e.hostBinds(),
-		NetworkMode: container.NetworkMode(e.network),
-	}
+	hostCfg := e.childHostConfig()
 
 	name := fmt.Sprintf("renovate-discovery-%s-%d", sanitizeName(job.Name), startTime.Unix())
 
@@ -657,10 +667,7 @@ func (e *DockerExecutor) dispatchProject(ctx context.Context, job *api.RenovateJ
 		User:   renovateContainerUser,
 	}
 
-	hostCfg := &container.HostConfig{
-		Binds:       e.hostBinds(),
-		NetworkMode: container.NetworkMode(e.network),
-	}
+	hostCfg := e.childHostConfig()
 
 	name := fmt.Sprintf("renovate-%s-%d", sanitizeName(project), now.Unix())
 

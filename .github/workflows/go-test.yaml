@@ -19,9 +19,12 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+          cache-dependency-path: go.sum
 
       - name: Install just
         uses: https://codeberg.org/FelixSchwarz/setup-just@v4.0.0-codeberg
+        with:
+          just-version: "1.59.0"
 
       - name: Download dependencies
         run: go mod download
