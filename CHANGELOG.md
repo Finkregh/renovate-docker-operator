@@ -2,6 +2,22 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.9.0](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/compare/6efe9402836fd4d38521e8a158663fa393c4a57f..v0.9.0) - 2026-11-05
+#### Features
+- (**nix**) add native NixOS deployment - ([6efe940](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/6efe9402836fd4d38521e8a158663fa393c4a57f)) - Oluf Lorenzen
+#### Bug Fixes
+- (**ci**) retry esbuild installation - ([f176e45](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/f176e4554ba0aa6c9ae562369a42082c6ee0ad73)) - Oluf Lorenzen, OpenAI
+- (**ci**) correct Buildx cache export - ([5d79b41](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/5d79b41c527308f771f2d30a745a7ba7a8c3f008)) - Oluf Lorenzen, OpenAI
+- (**nix**) add rootless user service mode - ([ee5defe](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/ee5defeb2f3e0c6f6694993bc6b2e21ca728dc6a)) - Oluf Lorenzen, OpenAI
+#### Continuous Integration
+- restore Docker-in-Docker image builds - ([6dffc8c](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/6dffc8c2811351ae1ce27b1ef31661a976149caf)) - Oluf Lorenzen
+- diagnose Podman install failures - ([55afba2](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/55afba2001d3c63890e2f5b87030d51d914d5208)) - Oluf Lorenzen
+- cache Podman packages - ([dd39e2f](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/dd39e2ff9c0033a94d87677b8fbea081650eb829)) - Oluf Lorenzen
+- cache build dependencies and fix lint - ([610e9fa](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/610e9fae06e56e4195268d0db3d6de0a6f056ad6)) - Oluf Lorenzen
+- build images without Docker-in-Docker - ([b30ddbd](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/b30ddbd237f0e37eb2e63386526c94a47fe5e43d)) - Oluf Lorenzen
+
+- - -
+
 ## [v0.8.0](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/compare/4859d3419cdec3de783a1d78060a2bd08ffbfb45..v0.8.0) - 2026-09-03
 #### 
 - show runtime image and update indicator in header - ([b6c2dad](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/b6c2dad10a93085bf82a322929e0877c4916bf8e)) - Oluf Lorenzen
