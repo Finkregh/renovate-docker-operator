@@ -25,10 +25,21 @@ RUN apk add --no-cache curl
 RUN mkdir -p static/js && \
     curl -s -L -o static/js/tailwind.min.js "https://cdn.tailwindcss.com" && \
     curl -s -L -o static/js/babel.min.js "https://unpkg.com/@babel/standalone@8.0.1/babel.min.js"
-RUN mkdir -p /bundle && \
-    npm install --prefix /bundle "react@19.2.8" "react-dom@19.2.8" esbuild --save=false && \
+# esbuild's postinstall occasionally sees its native binary as ETXTBSY on
+# overlay-backed builders; retry a clean install after the writer releases it.
+RUN set -eux; \
+    mkdir -p /bundle; \
+    for attempt in 1 2 3; do \
+        if npm install --prefix /bundle "react@19.2.8" "react-dom@19.2.8" esbuild \
+            --save=false --no-audit --no-fund --foreground-scripts; then \
+            break; \
+        fi; \
+        if [ "$attempt" -eq 3 ]; then exit 1; fi; \
+        rm -rf /bundle/node_modules /bundle/package-lock.json; \
+        sleep "$attempt"; \
+    done; \
     echo "import React from 'react'; import { createRoot } from 'react-dom/client'; export { React, createRoot };" \
-        > /bundle/entry.mjs && \
+        > /bundle/entry.mjs; \
     /bundle/node_modules/.bin/esbuild /bundle/entry.mjs \
         --bundle --format=esm --log-level=silent \
         --outfile=static/js/react-bundle.esm.js
