@@ -30,11 +30,12 @@ type Config struct {
 	SQLitePath string // ROP_SQLITE_PATH (default: /data/renovate.db)
 
 	// Docker
-	RenovateImage            string // ROP_IMAGE (default: renovate/renovate:latest)
-	CacheVolume              string // ROP_CACHE_VOLUME (default: renovate-cache)
-	ContainerbaseCacheVolume string // ROP_CONTAINERBASE_CACHE_VOLUME (default: renovate-containerbase-cache)
-	ContainerNetwork         string // ROP_CONTAINER_NETWORK (default: "")
-	ImagePullPolicy          string // ROP_IMAGE_PULL_POLICY (default: if-not-present)
+	RenovateImage            string   // ROP_IMAGE (default: renovate/renovate:latest)
+	CacheVolume              string   // ROP_CACHE_VOLUME (default: renovate-cache)
+	ContainerbaseCacheVolume string   // ROP_CONTAINERBASE_CACHE_VOLUME (default: renovate-containerbase-cache)
+	ContainerNetwork         string   // ROP_CONTAINER_NETWORK (default: "")
+	ContainerExtraHosts      []string // ROP_CONTAINER_EXTRA_HOSTS (comma-sep name:address entries)
+	ImagePullPolicy          string   // ROP_IMAGE_PULL_POLICY (default: if-not-present)
 
 	// Execution
 	Parallelism int           // ROP_PARALLELISM (default: 2)
@@ -121,6 +122,13 @@ func Load() (*Config, error) {
 		LogLevel:                 envOrDefault("ROP_LOG_LEVEL", "info"),
 	}
 
+	// Parse container extra hosts
+	extraHosts, err := parseContainerExtraHosts(os.Getenv("ROP_CONTAINER_EXTRA_HOSTS"))
+	if err != nil {
+		return nil, err
+	}
+	cfg.ContainerExtraHosts = extraHosts
+
 	// Parse integers
 	cfg.Parallelism = envOrDefaultInt("ROP_PARALLELISM", 2)
 
@@ -185,6 +193,7 @@ func Load() (*Config, error) {
 		"ROP_CACHE_VOLUME":               cfg.CacheVolume,
 		"ROP_CONTAINERBASE_CACHE_VOLUME": cfg.ContainerbaseCacheVolume,
 		"ROP_CONTAINER_NETWORK":          cfg.ContainerNetwork,
+		"ROP_CONTAINER_EXTRA_HOSTS":      strings.Join(cfg.ContainerExtraHosts, ","),
 		"ROP_IMAGE_PULL_POLICY":          cfg.ImagePullPolicy,
 		"ROP_PARALLELISM":                strconv.Itoa(cfg.Parallelism),
 		"ROP_JOB_TIMEOUT":                strconv.Itoa(jobTimeoutSec),
@@ -219,6 +228,30 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// parseContainerExtraHosts parses ROP_CONTAINER_EXTRA_HOSTS, a comma-separated
+// list of name:address entries injected as /etc/hosts entries into every spawned
+// Renovate container. Docker resolves the special address "host-gateway" to the
+// host's gateway, which is what rootless Podman exposes as its mapped host IP.
+func parseContainerExtraHosts(raw string) ([]string, error) {
+	var hosts []string
+	for _, entry := range strings.Split(raw, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+
+		name, address, found := strings.Cut(entry, ":")
+		name = strings.TrimSpace(name)
+		address = strings.TrimSpace(address)
+		if !found || name == "" || address == "" {
+			return nil, fmt.Errorf("ROP_CONTAINER_EXTRA_HOSTS entry %q must be in name:address form", entry)
+		}
+
+		hosts = append(hosts, name+":"+address)
+	}
+	return hosts, nil
 }
 
 // GetValue provides backward-compatible access to config by key name.

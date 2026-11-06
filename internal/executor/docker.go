@@ -69,6 +69,7 @@ type MetricsRecorder interface {
 type Config struct {
 	Image                    string
 	Network                  string
+	ExtraHosts               []string // extra /etc/hosts entries (name:address) for spawned containers
 	CacheVolume              string
 	ContainerbaseCacheVolume string
 	Parallelism              int
@@ -94,6 +95,7 @@ type DockerExecutor struct {
 	// Configuration
 	image                    string
 	network                  string
+	extraHosts               []string
 	cacheVolume              string
 	containerbaseCacheVolume string
 	parallelism              int
@@ -165,6 +167,7 @@ func New(cfg Config, store statestore.RenovateJobManager, logger *slog.Logger) (
 		logger:                   logger,
 		image:                    cfg.Image,
 		network:                  cfg.Network,
+		extraHosts:               cfg.ExtraHosts,
 		cacheVolume:              cfg.CacheVolume,
 		containerbaseCacheVolume: cfg.ContainerbaseCacheVolume,
 		parallelism:              cfg.Parallelism,
@@ -209,6 +212,7 @@ func (e *DockerExecutor) childHostConfig() *container.HostConfig {
 	return &container.HostConfig{
 		Binds:       e.hostBinds(),
 		NetworkMode: container.NetworkMode(e.network),
+		ExtraHosts:  e.extraHosts,
 		LogConfig: container.LogConfig{
 			Type: "k8s-file",
 		},

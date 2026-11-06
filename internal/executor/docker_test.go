@@ -445,6 +445,7 @@ func TestNew_CustomConfig(t *testing.T) {
 	cfg := Config{
 		Image:                    "custom/image:v1",
 		Network:                  "host",
+		ExtraHosts:               []string{"git.example.com:host-gateway"},
 		CacheVolume:              "my-vol",
 		ContainerbaseCacheVolume: "my-cb-vol",
 		Parallelism:              8,
@@ -464,6 +465,9 @@ func TestNew_CustomConfig(t *testing.T) {
 	}
 	if exec.network != "host" {
 		t.Errorf("network = %q, want %q", exec.network, "host")
+	}
+	if len(exec.extraHosts) != 1 || exec.extraHosts[0] != "git.example.com:host-gateway" {
+		t.Errorf("extraHosts = %v, want [git.example.com:host-gateway]", exec.extraHosts)
 	}
 	if exec.cacheVolume != "my-vol" {
 		t.Errorf("cacheVolume = %q, want %q", exec.cacheVolume, "my-vol")
@@ -503,6 +507,54 @@ func TestChildHostConfigUsesReadablePodmanLogs(t *testing.T) {
 	}
 	if hostCfg.NetworkMode != "renovate-network" {
 		t.Errorf("NetworkMode = %q, want renovate-network", hostCfg.NetworkMode)
+	}
+}
+
+// childHostConfig is shared by every ContainerCreate path (discovery sync,
+// discovery async, and project runs), so this covers all of them.
+func TestChildHostConfigCarriesExtraHosts(t *testing.T) {
+	tests := []struct {
+		name       string
+		extraHosts []string
+		want       []string
+	}{
+		{
+			name:       "no extra hosts",
+			extraHosts: nil,
+			want:       nil,
+		},
+		{
+			name:       "host gateway entry",
+			extraHosts: []string{"git.h.oluflorenzen.de:host-gateway"},
+			want:       []string{"git.h.oluflorenzen.de:host-gateway"},
+		},
+		{
+			name:       "multiple entries",
+			extraHosts: []string{"forgejo.local:host-gateway", "mirror.local:10.0.0.5"},
+			want:       []string{"forgejo.local:host-gateway", "mirror.local:10.0.0.5"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newTestExecutor(t)
+			e.network = "renovate-network"
+			e.extraHosts = tc.extraHosts
+
+			hostCfg := e.childHostConfig()
+
+			if len(hostCfg.ExtraHosts) != len(tc.want) {
+				t.Fatalf("ExtraHosts = %v, want %v", hostCfg.ExtraHosts, tc.want)
+			}
+			for i, want := range tc.want {
+				if hostCfg.ExtraHosts[i] != want {
+					t.Errorf("ExtraHosts[%d] = %q, want %q", i, hostCfg.ExtraHosts[i], want)
+				}
+			}
+			if hostCfg.NetworkMode != "renovate-network" {
+				t.Errorf("NetworkMode = %q, want renovate-network (isolation must be preserved)", hostCfg.NetworkMode)
+			}
+		})
 	}
 }
 

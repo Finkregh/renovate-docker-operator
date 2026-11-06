@@ -94,6 +94,7 @@ All configuration is via environment variables:
 | `ROP_CACHE_VOLUME`          | `renovate-cache`           | Docker volume for Renovate cache                                                        |
 | `ROP_CONTAINERBASE_CACHE_VOLUME` | `renovate-containerbase-cache` | Docker volume for Containerbase tool caches (uv, nix, pip, cargo, gradle, m2, gem, …). Safe to delete; refilled on next run. |
 | `ROP_CONTAINER_NETWORK`     | _(empty)_                  | Docker network for Renovate containers                                                  |
+| `ROP_CONTAINER_EXTRA_HOSTS` | _(empty)_                  | Comma-separated `name:address` pairs added as `/etc/hosts` entries to every spawned container. `host-gateway` is supported (e.g. `git.example.com:host-gateway`), which is how rootless Podman maps the host. |
 | `ROP_IMAGE_PULL_POLICY`     | `if-not-present`           | When to pull image (`always`, `if-not-present`, `never`)                                |
 | `ROP_IMAGE_CACHE_TTL`       | `24h`                      | Duration to cache the pulled image AND background re-pull interval (0 disables both)    |
 | `ROP_JOB_TIMEOUT`           | `1800`                     | Max runtime per Renovate container (seconds)                                            |
