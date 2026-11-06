@@ -27,7 +27,7 @@ jobs:
 
       - name: Comment image tag on PR
         env:
-          TOKEN: ${{ secrets.PACKAGE_UPLOAD_TOKEN }}
+          TOKEN: ${{ secrets.GLOBAL_COMMENT_TOKEN }}
           SERVER: ${{ github.server_url }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}

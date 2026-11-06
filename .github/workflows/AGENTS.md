@@ -36,6 +36,7 @@
 - Uses a custom Forgejo action (`finkregh/actions/actions/release-with-cog`) that wraps **cocogitto**.
 - Runs on PR events (preview changelog?) AND `workflow_dispatch` (actual release).
 - Requires `USER_PUSH_TOKEN` (separate from `PACKAGE_UPLOAD_TOKEN`) with push permission for tagging.
+- Posts the PR changelog comment through `package_tag_changelog_token`: `GLOBAL_COMMENT_TOKEN` on `pull_request`, `PACKAGE_UPLOAD_TOKEN` on `workflow_dispatch`. `USER_PUSH_TOKEN`/`PACKAGE_UPLOAD_TOKEN` get `403` on issue comments.
 
 ## Go Testing (`go-test.yaml`)
 - **No matrix** — single job, single OS (ubuntu-latest in node:24-bookworm container).
@@ -45,8 +46,9 @@
 ## Required Secrets
 | Secret | Used by |
 |--------|---------|
-| `PACKAGE_UPLOAD_TOKEN` | Image push, PR comment, cleanup, binary upload |
-| `USER_PUSH_TOKEN` | `release-cog.yaml` — needs repo push (for tags/changelog commits) |
+| `PACKAGE_UPLOAD_TOKEN` | Image push, cleanup, binary upload, real (`workflow_dispatch`) releases via `release-cog.yaml` |
+| `USER_PUSH_TOKEN` | `release-cog.yaml` git checkout — needs repo push (for changelog commits/tags) |
+| `GLOBAL_COMMENT_TOKEN` | `build-pr-image.yaml` + `release-cog.yaml` PR comments — needs issue/PR write, which repo-scoped tokens lack (they get `403 Forbidden`) |
 
 ## Non-Obvious Details
 - All jobs pin a specific `node:24-bookworm` container image by SHA digest — even non-Node workflows. This is the Forgejo runner's base image requirement.
