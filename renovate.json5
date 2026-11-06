@@ -15,14 +15,24 @@
       "managerFilePatterns": ["/^Justfile$/", "/^Dockerfile$/"],
       "matchStrings": ["\"(?<depName>react|react-dom)@(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)\""],
       "datasourceTemplate": "npm"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^Justfile$/"],
+      "matchStrings": [
+        "go run (?<depName>github\\.com/golangci/golangci-lint/v2)/cmd/golangci-lint@(?<currentValue>v[0-9.]+)",
+        "go run (?<depName>gotest\\.tools/gotestsum)@(?<currentValue>v[0-9.]+)"
+      ],
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
     }
   ],
   "packageRules": [
     {
-      "description": "One PR for every Go update: go.mod go directive, golang base image, all Go modules",
+      "description": "One PR for every Go update: go.mod go directive, golang base image, all Go modules and the pinned lint/test tools",
       "groupName": "go",
       "groupSlug": "go",
-      "matchDatasources": ["gomod", "golang-version"],
+      "matchDatasources": ["go", "golang-version"],
       "separateMajorMinor": false,
       "separateMinorPatch": false,
       "separateMultipleMajor": false
@@ -63,6 +73,12 @@
       "separateMajorMinor": false,
       "separateMinorPatch": false,
       "separateMultipleMajor": false
+    },
+    {
+      "description": "Lint/test tools pinned in the Justfile are bumped as fix(deps), like Go modules",
+      "matchManagers": ["regex"],
+      "matchDatasources": ["go"],
+      "semanticCommitType": "fix"
     },
     {
       "matchPackageNames": ["registry.k8s.io/kubectl", "valkey"],

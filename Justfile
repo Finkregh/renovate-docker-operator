@@ -42,11 +42,14 @@ check: golangci-lint test-unit
 
 # Execute unit tests
 test-unit:
-    go run gotest.tools/gotestsum@latest --format="testname" --hide-summary="skipped" --format-hide-empty-pkg --rerun-fails="0" -- -count=1 ./...
+    go run gotest.tools/gotestsum@v1.13.0 --format="testname" --hide-summary="skipped" --format-hide-empty-pkg --rerun-fails="0" -- -count=1 ./...
 
 # Execute golangci-lint
+#
+# Tool versions are pinned so CI is reproducible and Renovate can bump them (see
+# customManagers in renovate.json5) instead of silently resolving @latest.
 golangci-lint:
-    go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run --config=.golangci.yml '--timeout=1h' ./...
+    go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0 run --config=.golangci.yml '--timeout=1h' ./...
 
 # Install JS dependencies
 jsInstall:
