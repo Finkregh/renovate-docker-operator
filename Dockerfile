@@ -3,7 +3,7 @@
 #   No actual secrets are baked into the image.
 
 # Build stage
-FROM golang:1.26-alpine AS builder
+FROM golang:1.27-alpine AS builder
 
 WORKDIR /src
 
