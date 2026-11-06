@@ -39,8 +39,11 @@
 - Posts the PR changelog comment through `package_tag_changelog_token`: `GLOBAL_COMMENT_TOKEN` on `pull_request`, `PACKAGE_UPLOAD_TOKEN` on `workflow_dispatch`. `USER_PUSH_TOKEN`/`PACKAGE_UPLOAD_TOKEN` get `403` on issue comments.
 
 ## Go Testing (`go-test.yaml`)
-- **No matrix** — single job, single OS (ubuntu-latest in node:24-bookworm container).
-- Go version from `go.mod` (`go-version-file`), cached via `setup-go` action's built-in cache.
+- **No matrix** — single job, single OS (ubuntu-latest in node:26-bookworm container).
+- Runs on `pull_request` **and** `push` to `main` — the main run is what warms the caches that PR runs restore from (Forgejo caches are ref-scoped and die with a deleted branch).
+- Go version from `go.mod` (`go-version-file`), cached via `setup-go` with `cache-dependency-path: go.sum + Justfile`.
+- The lint/test tools are **pinned in the Justfile** (`golangci-lint@vX.Y.Z`, `gotestsum@vX.Y.Z`); never use `@latest`. Renovate bumps them through the `regex` custom manager in `renovate.json5` (datasource `go`, grouped into the `go` PR). Because the Justfile is part of the module-cache key, a tool bump also invalidates the Go cache.
+- `~/.cache/golangci-lint` is cached separately (keyed on the Justfile) — that is golangci-lint's own analysis cache.
 - Runs: lint → test → build (linux/amd64) sequentially in one job.
 
 ## Required Secrets

@@ -1,6 +1,9 @@
 name: GO lint & test
 
 on:
+  push:
+    branches:
+      - main
   pull_request:
     branches:
       - main
@@ -19,7 +22,10 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-          cache-dependency-path: go.sum
+          # Justfile pins the lint/test tools, so its contents are part of the key.
+          cache-dependency-path: |
+            go.sum
+            Justfile
 
       - name: Install just
         uses: https://codeberg.org/FelixSchwarz/setup-just@v4.0.0-codeberg
@@ -29,8 +35,19 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
+      # golangci-lint keeps its own analysis cache (~20-30s on repeat runs).
+      - name: Cache golangci-lint analysis
+        uses: https://code.forgejo.org/actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4
+        with:
+          path: ~/.cache/golangci-lint
+          key: golangci-lint-${{ runner.os }}-${{ hashFiles('Justfile') }}
+          restore-keys: |
+            golangci-lint-${{ runner.os }}-
+
       - name: Lint
-        run: just golangci-lint
+        run: |
+          export GOLANGCI_LINT_CACHE="${HOME}/.cache/golangci-lint"
+          just golangci-lint
 
       - name: Test
         run: just test-unit
