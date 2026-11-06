@@ -30,7 +30,7 @@ RUN mkdir -p static/js && \
 RUN set -eux; \
     mkdir -p /bundle; \
     for attempt in 1 2 3; do \
-        if npm install --prefix /bundle "react@19.2.9" "react-dom@19.2.9" esbuild \
+        if npm install --prefix /bundle "react@19.3.1" "react-dom@19.3.1" esbuild \
             --save=false --no-audit --no-fund --foreground-scripts; then \
             break; \
         fi; \
