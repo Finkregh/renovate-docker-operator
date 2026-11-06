@@ -1,6 +1,6 @@
 module git.h.oluflorenzen.de/finkregh/renovate-docker-operator
 
-go 1.26.10
+go 1.27.3
 
 require (
 	github.com/containerd/errdefs v1.0.0
