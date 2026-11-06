@@ -22,7 +22,7 @@ jobs:
           ref: ${{ steps.extract_branch.outputs.branch }}
           token: ${{ secrets.USER_PUSH_TOKEN }}
       - name: Generate release with changelog
-        uses: https://git.h.oluflorenzen.de/finkregh/actions/actions/release-with-cog@813c133c61aa1a5bd8a0f5ae6938313715324995 # feat/split-tokens
+        uses: https://git.h.oluflorenzen.de/finkregh/actions/actions/release-with-cog@1e511a1671fbb9ff4ec261c755f15056d6f7331c # release-with-cog-0.5.0
         with:
           # One token drives both the PR changelog comment and the tag/release
           # creation. Comments need issue write (USER_PUSH_TOKEN got 403), which
