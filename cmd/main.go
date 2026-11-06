@@ -114,6 +114,7 @@ func run(exitFn func(int)) error {
 	execCfg := executor.Config{
 		Image:                    cfg.RenovateImage,
 		Network:                  cfg.ContainerNetwork,
+		ExtraHosts:               cfg.ContainerExtraHosts,
 		CacheVolume:              cfg.CacheVolume,
 		ContainerbaseCacheVolume: cfg.ContainerbaseCacheVolume,
 		Parallelism:              cfg.Parallelism,

@@ -2355,6 +2355,21 @@
                           </div>
                         </div>
 
+                        {job.discoveryStatus === "failed" && (
+                          <div
+                            className="border-t border-error/20 bg-error/5 px-4 py-3 sm:px-6 dark:bg-error/10"
+                            role="alert"
+                          >
+                            <h3 className="text-sm font-semibold text-error">
+                              Discovery failed
+                            </h3>
+                            <p className="mt-1 whitespace-pre-wrap break-words text-sm text-gray-700 dark:text-slate-300">
+                              {job.discoveryError ||
+                                "Discovery failed with an unknown error."}
+                            </p>
+                          </div>
+                        )}
+
                         {/* Project table (desktop) */}
                         <div className="border-t border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/50">
                           <div className="hidden lg:block overflow-x-auto">

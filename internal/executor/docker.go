@@ -69,6 +69,7 @@ type MetricsRecorder interface {
 type Config struct {
 	Image                    string
 	Network                  string
+	ExtraHosts               []string // extra /etc/hosts entries (name:address) for spawned containers
 	CacheVolume              string
 	ContainerbaseCacheVolume string
 	Parallelism              int
@@ -94,6 +95,7 @@ type DockerExecutor struct {
 	// Configuration
 	image                    string
 	network                  string
+	extraHosts               []string
 	cacheVolume              string
 	containerbaseCacheVolume string
 	parallelism              int
@@ -165,6 +167,7 @@ func New(cfg Config, store statestore.RenovateJobManager, logger *slog.Logger) (
 		logger:                   logger,
 		image:                    cfg.Image,
 		network:                  cfg.Network,
+		extraHosts:               cfg.ExtraHosts,
 		cacheVolume:              cfg.CacheVolume,
 		containerbaseCacheVolume: cfg.ContainerbaseCacheVolume,
 		parallelism:              cfg.Parallelism,
@@ -209,6 +212,7 @@ func (e *DockerExecutor) childHostConfig() *container.HostConfig {
 	return &container.HostConfig{
 		Binds:       e.hostBinds(),
 		NetworkMode: container.NetworkMode(e.network),
+		ExtraHosts:  e.extraHosts,
 		LogConfig: container.LogConfig{
 			Type: "k8s-file",
 		},
@@ -709,8 +713,11 @@ func (e *DockerExecutor) listenEvents(ctx context.Context, triggerDispatch func(
 	defer supervise.Guard(ctx, e.logger, "listenEvents")()
 	f := filters.NewArgs()
 	f.Add("type", string(events.ContainerEventType))
+	// Docker reports the action as "die", Podman as "died". Filtering on a
+	// single spelling silently drops every exit event on runtimes that use the
+	// other one, which leaves containers tracked and projects stuck in Running.
 	f.Add("event", "die")
-	f.Add("label", labelType)
+	f.Add("event", "died")
 
 	eventsCh, errCh := e.docker.Events(ctx, events.ListOptions{Filters: f})
 
@@ -736,16 +743,31 @@ func (e *DockerExecutor) listenEvents(ctx context.Context, triggerDispatch func(
 				eventsCh, errCh = e.docker.Events(ctx, events.ListOptions{Filters: f})
 			}
 		case event := <-eventsCh:
-			if event.Action == "die" {
-				exitPool <- struct{}{}
-				go func(containerID string) {
-					defer func() { <-exitPool }()
-					e.handleContainerExit(ctx, containerID)
-					triggerDispatch()
-				}(event.Actor.ID)
+			if !isExitAction(event.Action) {
+				continue
 			}
+			// Skip unrelated containers cheaply when the runtime reports labels on
+			// the event. Absent attributes are tolerated: handleContainerExit
+			// resolves the project from container labels and skips non-ours.
+			if attrs := event.Actor.Attributes; len(attrs) > 0 {
+				if _, ours := attrs[labelType]; !ours {
+					continue
+				}
+			}
+			exitPool <- struct{}{}
+			go func(containerID string) {
+				defer func() { <-exitPool }()
+				e.handleContainerExit(ctx, containerID)
+				triggerDispatch()
+			}(event.Actor.ID)
 		}
 	}
+}
+
+// isExitAction reports whether an event action means the container stopped.
+// Docker emits "die", Podman emits "died".
+func isExitAction(action events.Action) bool {
+	return action == "die" || action == "died"
 }
 
 // classifyOutcome maps an exit code + runtime to a resilience.Outcome.
@@ -926,14 +948,27 @@ func (e *DockerExecutor) reconcileOrphans(ctx context.Context) error {
 	}
 
 	e.mu.Lock()
-	tracked := make(map[string]bool, len(e.running))
-	for _, cid := range e.running {
-		tracked[cid] = true
+	tracked := make(map[string]string, len(e.running))
+	for proj, cid := range e.running {
+		tracked[cid] = proj
 	}
 	e.mu.Unlock()
 
 	for _, c := range containers {
-		if tracked[c.ID] {
+		if project, ok := tracked[c.ID]; ok {
+			// Tracked containers are expected to be running. If the runtime
+			// already reports them as stopped, the exit event was missed (event
+			// naming differences, a socket reconnect, or an operator restart),
+			// so process the exit here instead of leaving the project stuck in
+			// Running with no logs stored.
+			if c.State == "exited" || c.State == "dead" {
+				e.logger.Warn("tracked container already exited, processing missed exit",
+					"container", c.ID[:12],
+					"project", project,
+					"state", c.State,
+				)
+				e.handleContainerExit(ctx, c.ID)
+			}
 			continue
 		}
 
