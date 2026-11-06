@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -416,6 +418,63 @@ func TestImageStatusEndpoint(t *testing.T) {
 				if got := body[k]; got != want {
 					t.Errorf("field %q = %v (%T), want %v (%T)", k, got, got, want, want)
 				}
+			}
+		})
+	}
+}
+
+// fakeLogStore returns a configurable error from StreamLogsForProject.
+type fakeLogStore struct {
+	statestore.RenovateJobManager
+	err error
+}
+
+func (f *fakeLogStore) StreamLogsForProject(_ context.Context, _ statestore.RenovateJobIdentifier, _ string) (io.ReadCloser, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return io.NopCloser(strings.NewReader(`{"msg":"ok"}`)), nil
+}
+
+func TestGetRenovateJobLogs_MissingLogIsNotFound(t *testing.T) {
+	tests := []struct {
+		name     string
+		storeErr error
+		wantCode int
+	}{
+		{
+			name:     "stored logs missing returns 404",
+			storeErr: statestore.ErrNotFound,
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name:     "unexpected store failure returns 500",
+			storeErr: errors.New("disk on fire"),
+			wantCode: http.StatusInternalServerError,
+		},
+		{
+			name:     "stored logs present returns 200",
+			storeErr: nil,
+			wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &Server{
+				store:  &fakeLogStore{err: tt.storeErr},
+				logger: slog.Default(),
+			}
+			router := mux.NewRouter()
+			router.HandleFunc("/api/v1/logs", s.getRenovateJobLogs).Methods("GET")
+
+			req := httptest.NewRequestWithContext(context.Background(), "GET",
+				"/api/v1/logs?namespace=&renovate=default&project=finkregh%2Factions", nil)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			if w.Code != tt.wantCode {
+				t.Fatalf("status = %d, want %d: %s", w.Code, tt.wantCode, w.Body.String())
 			}
 		})
 	}

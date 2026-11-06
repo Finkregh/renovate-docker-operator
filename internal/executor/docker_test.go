@@ -13,6 +13,7 @@ import (
 
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/api"
 	"git.h.oluflorenzen.de/finkregh/renovate-docker-operator/internal/resilience"
+	"github.com/docker/docker/api/types/events"
 )
 
 func TestSanitizeName(t *testing.T) {
@@ -553,6 +554,28 @@ func TestChildHostConfigCarriesExtraHosts(t *testing.T) {
 			}
 			if hostCfg.NetworkMode != "renovate-network" {
 				t.Errorf("NetworkMode = %q, want renovate-network (isolation must be preserved)", hostCfg.NetworkMode)
+			}
+		})
+	}
+}
+
+func TestIsExitAction(t *testing.T) {
+	tests := []struct {
+		name   string
+		action events.Action
+		want   bool
+	}{
+		{name: "docker die", action: "die", want: true},
+		{name: "podman died", action: "died", want: true},
+		{name: "start", action: "start", want: false},
+		{name: "stop", action: "stop", want: false},
+		{name: "empty", action: "", want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isExitAction(tc.action); got != tc.want {
+				t.Errorf("isExitAction(%q) = %v, want %v", tc.action, got, tc.want)
 			}
 		})
 	}

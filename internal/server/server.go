@@ -441,6 +441,12 @@ func (s *Server) getRenovateJobLogs(w http.ResponseWriter, r *http.Request) {
 		project,
 	)
 	if err != nil {
+		if errors.Is(err, statestore.ErrNotFound) {
+			// No log has been stored yet for this project (never ran, or the run
+			// has not finished). This is not a server error.
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "no logs stored for project"})
+			return
+		}
 		s.logger.Error("failed to get logs", "project", project, "error", err)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to get logs"})
 		return
