@@ -22,6 +22,10 @@ jobs:
           ref: ${{ steps.extract_branch.outputs.branch }}
           token: ${{ secrets.USER_PUSH_TOKEN }}
       - name: Generate release with changelog
-        uses: https://git.h.oluflorenzen.de/finkregh/actions/actions/release-with-cog@f44f30a0f1b34eaf5faec16f1bd796b3a12c71fe # release-with-cog-0.4.1
+        uses: https://git.h.oluflorenzen.de/finkregh/actions/actions/release-with-cog@813c133c61aa1a5bd8a0f5ae6938313715324995 # feat/split-tokens
         with:
-          forgejo_token: ${{ secrets.USER_PUSH_TOKEN }}
+          # One token drives both the PR changelog comment and the tag/release
+          # creation. Comments need issue write (USER_PUSH_TOKEN got 403), which
+          # a repo-scoped token cannot grant here; on PR events use the global
+          # comment token, and the package/release token for real releases.
+          package_tag_changelog_token: ${{ github.event_name == 'pull_request' && secrets.GLOBAL_COMMENT_TOKEN || secrets.PACKAGE_UPLOAD_TOKEN }}
