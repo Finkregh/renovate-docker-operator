@@ -33,21 +33,27 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           IMAGE_TAG: ${{ steps.server_domain.outputs.server_domain }}/${{ github.repository }}:pr-${{ github.event.pull_request.number }}
         run: |
+          API="${SERVER}/api/v1/repos/${REPO}/issues/${PR_NUMBER}/comments"
           COMMENT_BODY="🐳 Dev image published: \`${IMAGE_TAG}\`
 
           \`\`\`bash
           docker pull ${IMAGE_TAG}
           \`\`\`"
 
+          # Encode with node: the body spans several lines, and a raw newline inside
+          # a JSON string is invalid JSON — Forgejo then rejects the comment.
+          PAYLOAD=$(node -e 'process.stdout.write(JSON.stringify({ body: process.argv[1] }))' "${COMMENT_BODY}")
+
           # Check if we already commented (avoid spam on synchronize)
-          EXISTING=$(curl -s -H "Authorization: token ${TOKEN}" \
-            "${SERVER}/api/v1/repos/${REPO}/issues/${PR_NUMBER}/comments" \
+          EXISTING=$(curl -s -H "Authorization: token ${TOKEN}" "${API}" \
             | grep -c "Dev image published" || true)
 
-          if [ "$EXISTING" = "0" ]; then
-            curl -s --fail -X POST \
+          if [ "${EXISTING}" = "0" ]; then
+            curl -sS --fail-with-body -X POST \
               -H "Authorization: token ${TOKEN}" \
               -H "Content-Type: application/json" \
-              -d "{\"body\": \"${COMMENT_BODY}\"}" \
-              "${SERVER}/api/v1/repos/${REPO}/issues/${PR_NUMBER}/comments"
+              -d "${PAYLOAD}" \
+              "${API}"
+          else
+            echo "Image tag comment already present, nothing to do"
           fi
