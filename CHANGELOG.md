@@ -2,6 +2,15 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## [v0.10.0](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/compare/790a60823402d1b46a1f63b2d44fc91fa869f2b7..v0.10.0) - 2026-11-06
+#### Features
+- (**executor**) add container extra hosts for spawned Renovate containers - ([ad5947b](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/ad5947b2915ff3363ca7311763fa69c0b33eabcf)) - Oluf Lorenzen
+#### Bug Fixes
+- (**executor**) process container exit events on Podman - ([0ae94fb](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/0ae94fb52d2def7123e5388de8ebadef6887a074)) - Oluf Lorenzen
+- (**ui**) persist discovery failure details - ([790a608](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/790a60823402d1b46a1f63b2d44fc91fa869f2b7)) - Oluf Lorenzen
+
+- - -
+
 ## [v0.9.0](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/compare/6efe9402836fd4d38521e8a158663fa393c4a57f..v0.9.0) - 2026-11-05
 #### Features
 - (**nix**) add native NixOS deployment - ([6efe940](https://https://git.h.oluflorenzen.de/finkregh/renovate-docker-operator/commit/6efe9402836fd4d38521e8a158663fa393c4a57f)) - Oluf Lorenzen
