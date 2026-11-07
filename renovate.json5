@@ -1,92 +1,128 @@
 {
-  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": [
-    "github>mogenius/renovate-config//presets/golang.json#main"
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  extends: [
+    'github>mogenius/renovate-config//presets/golang.json#main',
   ],
-  "customManagers": [
+  customManagers: [
     {
-      "customType": "regex",
-      "managerFilePatterns": ["/^Justfile$/", "/^Dockerfile$/"],
-      "matchStrings": ["unpkg\\.com/(?<depName>[^@\"]+)@(?<currentValue>[^/\"]+)"],
-      "datasourceTemplate": "npm"
-    },
-    {
-      "customType": "regex",
-      "managerFilePatterns": ["/^Justfile$/", "/^Dockerfile$/"],
-      "matchStrings": ["\"(?<depName>react|react-dom)@(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)\""],
-      "datasourceTemplate": "npm"
-    },
-    {
-      "customType": "regex",
-      "managerFilePatterns": ["/^Justfile$/"],
-      "matchStrings": [
-        "go run (?<depName>github\\.com/golangci/golangci-lint/v2)/cmd/golangci-lint@(?<currentValue>v[0-9.]+)",
-        "go run (?<depName>gotest\\.tools/gotestsum)@(?<currentValue>v[0-9.]+)"
+      customType: 'regex',
+      managerFilePatterns: [
+        '/^Justfile$/',
+        '/^Dockerfile$/',
       ],
-      "datasourceTemplate": "go",
-      "versioningTemplate": "semver"
-    }
+      matchStrings: [
+        'unpkg\\.com/(?<depName>[^@"]+)@(?<currentValue>[^/"]+)',
+      ],
+      datasourceTemplate: 'npm',
+    },
+    {
+      customType: 'regex',
+      managerFilePatterns: [
+        '/^Justfile$/',
+        '/^Dockerfile$/',
+      ],
+      matchStrings: [
+        '"(?<depName>react|react-dom)@(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)"',
+      ],
+      datasourceTemplate: 'npm',
+    },
+    {
+      customType: 'regex',
+      managerFilePatterns: [
+        '/^Justfile$/',
+      ],
+      matchStrings: [
+        'go run (?<depName>github\\.com/golangci/golangci-lint/v2)/cmd/golangci-lint@(?<currentValue>v[0-9.]+)',
+        'go run (?<depName>gotest\\.tools/gotestsum)@(?<currentValue>v[0-9.]+)',
+      ],
+      datasourceTemplate: 'go',
+      versioningTemplate: 'semver',
+    },
   ],
-  "packageRules": [
+  packageRules: [
     {
-      "description": "One PR for every Go update: go.mod go directive, golang base image, all Go modules and the pinned lint/test tools",
-      "groupName": "go",
-      "groupSlug": "go",
-      "matchDatasources": ["go", "golang-version"],
-      "separateMajorMinor": false,
-      "separateMinorPatch": false,
-      "separateMultipleMajor": false
+      description: 'One PR for every Go update: go.mod go directive, golang base image, all Go modules and the pinned lint/test tools',
+      groupName: 'go',
+      groupSlug: 'go',
+      matchDatasources: [
+        'go',
+        'golang-version',
+      ],
+      separateMajorMinor: false,
+      separateMinorPatch: false,
+      separateMultipleMajor: false,
     },
     {
-      "groupName": "go",
-      "groupSlug": "go",
-      "matchDatasources": ["docker"],
-      "matchPackageNames": ["/^golang$/"],
-      "separateMajorMinor": false,
-      "separateMinorPatch": false,
-      "separateMultipleMajor": false
+      groupName: 'go',
+      groupSlug: 'go',
+      matchDatasources: [
+        'docker',
+      ],
+      matchPackageNames: [
+        '/^golang$/',
+      ],
+      separateMajorMinor: false,
+      separateMinorPatch: false,
+      separateMultipleMajor: false,
     },
     {
-      "description": "One PR for the JS stack: react, react-dom and @babel/standalone (custom managers above)",
-      "groupName": "js",
-      "groupSlug": "js",
-      "matchDatasources": ["npm"],
-      "separateMajorMinor": false,
-      "separateMinorPatch": false,
-      "separateMultipleMajor": false
+      description: 'One PR for the JS stack: react, react-dom and @babel/standalone (custom managers above)',
+      groupName: 'js',
+      groupSlug: 'js',
+      matchDatasources: [
+        'npm',
+      ],
+      separateMajorMinor: false,
+      separateMinorPatch: false,
+      separateMultipleMajor: false,
     },
     {
-      "description": "One PR for the remaining container base images (alpine, node, valkey, kubectl, ...)",
-      "groupName": "docker",
-      "groupSlug": "docker",
-      "matchDatasources": ["docker"],
-      "matchPackageNames": ["!/^golang$/"],
-      "separateMajorMinor": false,
-      "separateMinorPatch": false,
-      "separateMultipleMajor": false
+      description: 'One PR for the remaining container base images (alpine, node, valkey, kubectl, ...)',
+      groupName: 'docker',
+      groupSlug: 'docker',
+      matchDatasources: [
+        'docker',
+      ],
+      matchPackageNames: [
+        '!/^golang$/',
+      ],
+      separateMajorMinor: false,
+      separateMinorPatch: false,
+      separateMultipleMajor: false,
     },
     {
-      "description": "One PR for pinned CI action versions and digests",
-      "groupName": "ci-actions",
-      "groupSlug": "ci-actions",
-      "matchManagers": ["github-actions"],
-      "separateMajorMinor": false,
-      "separateMinorPatch": false,
-      "separateMultipleMajor": false
+      description: 'One PR for pinned CI action versions and digests',
+      groupName: 'ci-actions',
+      groupSlug: 'ci-actions',
+      matchManagers: [
+        'github-actions',
+      ],
+      separateMajorMinor: false,
+      separateMinorPatch: false,
+      separateMultipleMajor: false,
     },
     {
-      "description": "Lint/test tools pinned in the Justfile are bumped as fix(deps), like Go modules",
-      "matchManagers": ["regex"],
-      "matchDatasources": ["go"],
-      "semanticCommitType": "fix"
+      description: 'Lint/test tools pinned in the Justfile are bumped as fix(deps), like Go modules',
+      matchManagers: [
+        'custom.regex',
+      ],
+      matchDatasources: [
+        'go',
+      ],
+      semanticCommitType: 'fix',
     },
     {
-      "matchPackageNames": ["registry.k8s.io/kubectl", "valkey"],
-      "semanticCommitType": "fix"
+      matchPackageNames: [
+        'registry.k8s.io/kubectl',
+        'valkey',
+      ],
+      semanticCommitType: 'fix',
     },
     {
-      "matchDatasources": ["npm"],
-      "semanticCommitType": "fix"
-    }
-  ]
+      matchDatasources: [
+        'npm',
+      ],
+      semanticCommitType: 'fix',
+    },
+  ],
 }
